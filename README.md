@@ -145,6 +145,20 @@ Proyek dikembangkan secara bertahap, dimulai dari analisis kebutuhan, penyusunan
 
 Fitur yang didokumentasikan merupakan ruang lingkup produk yang direncanakan dan tidak selalu menunjukkan bahwa seluruh fungsi telah selesai diimplementasikan.
 
+### Implementasi saat ini
+
+- Pratinjau mobile untuk peran Anggota, Bendahara, dan Admin dengan empat tab: Beranda, Inventaris, Keuangan, dan Profil.
+- Daftar/detail inventaris, riwayat/detail transaksi, koneksi bendahara, pengguna, dan laporan yang dapat dinavigasi.
+- Form pemasukan/pengeluaran **khusus demo** untuk Bendahara. Saldo contoh dihitung dari transaksi lokal dan pengeluaran di atas saldo ditolak pada mode demo.
+- Admin dapat menambah dan mengubah barang, menyesuaikan stok dengan alasan, mengarsipkan barang, mencatat peminjaman, serta mengembalikan barang dengan kondisi baik/rusak/hilang. Stok siap pinjam hanya bertambah untuk barang yang kembali dalam kondisi baik.
+- Grafik arus kas mengikuti transaksi contoh pada bulan berjalan.
+
+Semua data di layar adalah **data contoh**. Perubahan transaksi, inventaris, dan peminjaman disimpan secara lokal di perangkat/browser yang sama. Data ini tidak disinkronkan dan dapat hilang jika penyimpanan aplikasi dibersihkan. Firebase Authentication, Firestore, Storage, Cloud Functions, aturan akses server, unggah bukti, dan pengelolaan akun belum terhubung. Tombol yang membutuhkan layanan tersebut menampilkan keterangan pratinjau. Pemilih peran pada layar awal hanya untuk melihat desain; peran produksi harus berasal dari akun yang diverifikasi server.
+
+PRD v2.0 menjadi acuan jika gambar ZIP atau dokumen UI/UX lama berbeda. Karena itu aplikasi tidak menyediakan transfer antarbendahara. Label kas gabungan menggunakan **Total Kas Terkoneksi** agar cakupannya jelas.
+
+Jalankan pratinjau dengan `flutter run -d chrome` atau perangkat Android yang siap. Periksa kode dengan `flutter analyze` dan `flutter test`. Untuk mengaktifkan aplikasi produksi, diperlukan konfigurasi proyek Firebase dan keputusan produk yang masih terbuka di PRD v2.0, terutama cakupan Total Kas dan aturan akses data keuangan.
+
 ## 📌 Penutup
 
 Karang Taruna Digital diharapkan dapat menjadi solusi pengelolaan organisasi kepemudaan yang lebih modern, transparan, dan terorganisasi.

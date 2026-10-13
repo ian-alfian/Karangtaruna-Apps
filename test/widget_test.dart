@@ -1,30 +1,44 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:karangtaruna_apps/main.dart';
+import 'package:karangtaruna_apps/app.dart';
+import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  setUp(() => SharedPreferencesAsyncPlatform.instance = InMemorySharedPreferencesAsync.empty());
+  testWidgets('pratinjau anggota dapat membuka navigasi utama', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(412, 915));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(const KarangTarunaApp());
+    await tester.pumpAndSettle();
+    expect(find.text('Buka Pratinjau'), findsOneWidget);
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    await tester.tap(find.text('Buka Pratinjau'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Halo, Rizky'), findsOneWidget);
+    expect(find.text('Total Kas Terkoneksi'), findsWidgets);
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    await tester.tap(find.text('Inventaris').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Daftar Barang'), findsOneWidget);
+    expect(find.text('Speaker aktif 12 inch'), findsOneWidget);
+  });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  testWidgets('aksi keuangan hanya tampil pada pratinjau bendahara', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(412, 915));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(const KarangTarunaApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Bendahara'));
+    await tester.tap(find.text('Buka Pratinjau'));
+    await tester.pumpAndSettle();
+    expect(find.text('Pemasukan'), findsWidgets);
+    expect(find.text('Pengeluaran'), findsWidgets);
+    await tester.tap(find.text('Pemasukan').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Tambah Pemasukan'), findsOneWidget);
+    expect(find.byType(TextFormField), findsNWidgets(3));
   });
 }
