@@ -51,3 +51,7 @@ app.*.map.json
 
 # Local copies of the ZIP screen references
 .design_reference/
+
+# Dokumen internal proyek
+PRD_Karang_Taruna_Digital_v2_0.md
+UI_UX_Requirement_Sistem_Karang_Taruna_Stitch.md
