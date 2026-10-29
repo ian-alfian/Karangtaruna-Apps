@@ -421,7 +421,7 @@ sequenceDiagram
             F-->>U: Akses dinonaktifkan
         else Akun aktif
             F-->>U: Dashboard atau tampilan role yang diizinkan
-            Note over U,F: Admin dapat memilih perspektif role lain; otorisasi tidak mengikuti pilihan UI.
+            Note over U,F: Admin dapat memilih perspektif role lain, otorisasi tidak mengikuti pilihan UI.
         end
     end
 ```
@@ -452,7 +452,7 @@ sequenceDiagram
         D->>R: Evaluasi izin penulisan melalui firestore.rules
         alt Izin ditolak
             R-->>D: Deny
-            D-->>F: Gagal; tidak ada commit parsial
+            D-->>F: Gagal, tidak ada commit parsial
             F-->>B: Tampilkan kesalahan akses
         else Izin diterima
             R-->>D: Allow
