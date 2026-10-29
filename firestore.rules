@@ -1,0 +1,448 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function gmailAddress(email) {
+      return email is string &&
+        email.lower().matches('^[^@ ]+@gmail[.]com$');
+    }
+
+    function allowedAccountEmail() {
+      return signedIn() && request.auth.token.email is string &&
+        (gmailAddress(request.auth.token.email) ||
+          request.auth.token.email.lower() ==
+            'ian.23eo10039@students.unugha.id');
+    }
+
+    function currentProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function activeAdmin() {
+      return allowedAccountEmail() && currentProfile().role == 'admin' &&
+        currentProfile().isActive == true;
+    }
+
+    function activeTreasurer() {
+      return allowedAccountEmail() && currentProfile().role == 'bendahara' &&
+        currentProfile().isActive == true;
+    }
+
+    function accountPath(uid) {
+      return /databases/$(database)/documents/cashAccounts/$(uid);
+    }
+
+    function ledgerPath(id) {
+      return /databases/$(database)/documents/financialTransactions/$(id);
+    }
+
+    function connectionPath(id) {
+      return /databases/$(database)/documents/treasurerConnections/$(id);
+    }
+
+    function connectionRequestPath(id) {
+      return /databases/$(database)/documents/treasurerConnectionRequests/$(id);
+    }
+
+    function sortedPair(first, second) {
+      return first < second ? [first, second] : [second, first];
+    }
+
+    function pairId(organizationId, first, second) {
+      return organizationId + '__' +
+        (first < second ? first + '__' + second : second + '__' + first);
+    }
+
+    function oldBalance(uid) {
+      return exists(accountPath(uid)) ? get(accountPath(uid)).data.balance : 0;
+    }
+
+    function signedAmount(entry) {
+      return entry.type == 'income' ? entry.amount : -entry.amount;
+    }
+
+    function validItem(data) {
+      return data.organizationId == currentProfile().organizationId &&
+        data.code is string && data.code.matches('^[A-Z0-9_-]{1,50}$') &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 160 &&
+        data.category is string && data.category.size() > 0 &&
+        data.category.size() <= 80 &&
+        data.location is string && data.location.size() > 0 &&
+        data.location.size() <= 160 &&
+        data.total is int && data.available is int &&
+        data.damaged is int && data.lost is int &&
+        data.total >= 0 && data.available >= 0 &&
+        data.damaged >= 0 && data.lost >= 0 &&
+        data.total >= data.available + data.damaged + data.lost &&
+        data.archived is bool;
+    }
+
+    function activeMember() {
+      return allowedAccountEmail() && currentProfile().isActive == true &&
+        currentProfile().organizationId is string;
+    }
+
+    function validRole(role) {
+      return role in ['admin', 'bendahara', 'anggota'];
+    }
+
+    function treasurerInOrganization(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid)) &&
+        get(/databases/$(database)/documents/users/$(uid)).data.role == 'bendahara' &&
+        get(/databases/$(database)/documents/users/$(uid)).data.isActive == true &&
+        get(/databases/$(database)/documents/users/$(uid)).data.organizationId ==
+          currentProfile().organizationId;
+    }
+
+    function sameOrganization() {
+      return activeMember() &&
+        resource.data.organizationId == currentProfile().organizationId;
+    }
+
+    match /users/{uid} {
+      allow get: if allowedAccountEmail() && request.auth.uid == uid ||
+        (activeAdmin() &&
+          resource.data.organizationId == currentProfile().organizationId);
+      allow list: if (activeAdmin() || activeTreasurer()) &&
+        resource.data.organizationId == currentProfile().organizationId;
+      allow create: if activeAdmin() &&
+        request.resource.data.keys().hasOnly([
+          'name', 'email', 'role', 'organizationId', 'isActive',
+          'createdBy', 'createdAt', 'updatedAt']) &&
+        request.resource.data.keys().hasAll([
+          'name', 'email', 'role', 'organizationId', 'isActive',
+          'createdBy', 'createdAt', 'updatedAt']) &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() >= 2 &&
+        request.resource.data.name.size() <= 160 &&
+        request.resource.data.email is string &&
+        request.resource.data.email.size() <= 254 &&
+        gmailAddress(request.resource.data.email) &&
+        validRole(request.resource.data.role) &&
+        request.resource.data.organizationId == currentProfile().organizationId &&
+        request.resource.data.isActive == true &&
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.updatedAt == request.time;
+      allow update: if activeAdmin() && sameOrganization() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'role', 'isActive', 'updatedBy', 'updatedAt']) &&
+        validRole(request.resource.data.role) &&
+        request.resource.data.isActive is bool &&
+        request.resource.data.updatedBy == request.auth.uid &&
+        request.resource.data.updatedAt == request.time &&
+        (uid != request.auth.uid ||
+          (request.resource.data.role == 'admin' &&
+            request.resource.data.isActive == true));
+      allow delete: if activeAdmin() && sameOrganization() &&
+        uid != request.auth.uid;
+    }
+
+    match /financialTransactions/{id} {
+      allow get, list: if sameOrganization();
+      allow create: if activeTreasurer() &&
+        request.resource.data.keys().hasAll([
+          'organizationId', 'holderUid', 'holderName', 'type', 'title',
+          'category', 'amount', 'note', 'transactionDate', 'createdBy', 'createdAt']) &&
+        request.resource.data.keys().hasOnly([
+          'organizationId', 'holderUid', 'holderName', 'type', 'title',
+          'category', 'amount', 'note', 'transactionDate', 'createdBy', 'createdAt']) &&
+        request.resource.data.organizationId == currentProfile().organizationId &&
+        request.resource.data.holderUid == request.auth.uid &&
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.holderName == currentProfile().name &&
+        request.resource.data.type in ['income', 'expense'] &&
+        request.resource.data.title is string &&
+        request.resource.data.title.size() > 0 &&
+        request.resource.data.title.size() <= 160 &&
+        request.resource.data.category is string &&
+        request.resource.data.category.size() > 0 &&
+        request.resource.data.category.size() <= 80 &&
+        request.resource.data.note is string &&
+        request.resource.data.note.size() <= 1000 &&
+        request.resource.data.amount is int &&
+        request.resource.data.amount > 0 &&
+        request.resource.data.transactionDate is timestamp &&
+        request.resource.data.createdAt == request.time &&
+        getAfter(accountPath(request.auth.uid)).data.lastTransactionId == id &&
+        getAfter(accountPath(request.auth.uid)).data.balance ==
+          oldBalance(request.auth.uid) + signedAmount(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    match /inventoryItems/{id} {
+      allow get: if (activeAdmin() &&
+          !exists(/databases/$(database)/documents/inventoryItems/$(id))) ||
+        sameOrganization();
+      allow list: if sameOrganization();
+      allow create: if activeAdmin() && validItem(request.resource.data) &&
+        id == currentProfile().organizationId + '__' + request.resource.data.code &&
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.updatedAt == request.time &&
+        request.resource.data.archived == false;
+      allow update: if activeAdmin() && sameOrganization() &&
+        validItem(request.resource.data) &&
+        request.resource.data.code == resource.data.code &&
+        request.resource.data.organizationId == resource.data.organizationId &&
+        request.resource.data.createdBy == resource.data.createdBy &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        resource.data.archived == false &&
+        request.resource.data.updatedAt == request.time &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'category', 'location', 'total', 'available',
+          'damaged', 'lost', 'archived', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /inventoryPhotos/{id} {
+      allow get: if (activeMember() &&
+          !exists(/databases/$(database)/documents/inventoryPhotos/$(id))) ||
+        sameOrganization();
+      allow list: if false;
+      allow create, update: if activeAdmin() &&
+        request.resource.data.keys().hasOnly([
+          'organizationId', 'itemCode', 'format', 'imageBase64',
+          'updatedBy', 'updatedAt']) &&
+        request.resource.data.keys().hasAll([
+          'organizationId', 'itemCode', 'format', 'imageBase64',
+          'updatedBy', 'updatedAt']) &&
+        request.resource.data.organizationId == currentProfile().organizationId &&
+        request.resource.data.itemCode is string &&
+        id == currentProfile().organizationId + '__' +
+          request.resource.data.itemCode &&
+        request.resource.data.format == 'jpeg' &&
+        request.resource.data.imageBase64 is string &&
+        request.resource.data.imageBase64.size() > 0 &&
+        request.resource.data.imageBase64.size() <= 210000 &&
+        request.resource.data.updatedBy == request.auth.uid &&
+        request.resource.data.updatedAt == request.time &&
+        existsAfter(/databases/$(database)/documents/inventoryItems/$(id)) &&
+        getAfter(/databases/$(database)/documents/inventoryItems/$(id)).data.archived == false &&
+        (resource == null ||
+          (resource.data.organizationId == request.resource.data.organizationId &&
+            resource.data.itemCode == request.resource.data.itemCode));
+      allow delete: if false;
+    }
+
+    match /inventoryMovements/{id} {
+      allow get, list: if sameOrganization();
+      allow create: if activeAdmin() &&
+        request.resource.data.organizationId == currentProfile().organizationId &&
+        request.resource.data.actorUid == request.auth.uid &&
+        request.resource.data.itemCode is string &&
+        request.resource.data.action is string &&
+        request.resource.data.reason is string &&
+        request.resource.data.beforeAvailable is int &&
+        request.resource.data.afterAvailable is int &&
+        request.resource.data.beforeAvailable >= 0 &&
+        request.resource.data.afterAvailable >= 0 &&
+        request.resource.data.at == request.time;
+      allow update, delete: if false;
+    }
+
+    match /borrowings/{id} {
+      allow get, list: if sameOrganization();
+      allow create: if activeAdmin() &&
+        request.resource.data.organizationId == currentProfile().organizationId &&
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.itemCode is string &&
+        request.resource.data.borrower is string &&
+        request.resource.data.borrower.size() > 0 &&
+        request.resource.data.quantity is int &&
+        request.resource.data.quantity > 0 &&
+        request.resource.data.returned == 0 &&
+        request.resource.data.dueAt is timestamp &&
+        request.resource.data.borrowedAt == request.time;
+      allow update: if activeAdmin() && sameOrganization() &&
+        request.resource.data.returned is int &&
+        request.resource.data.returned > resource.data.returned &&
+        request.resource.data.returned <= resource.data.quantity &&
+        request.resource.data.updatedAt == request.time &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'returned', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /borrowingReturns/{id} {
+      allow get, list: if sameOrganization();
+      allow create: if activeAdmin() &&
+        request.resource.data.organizationId == currentProfile().organizationId &&
+        request.resource.data.returnedBy == request.auth.uid &&
+        request.resource.data.good is int &&
+        request.resource.data.damaged is int &&
+        request.resource.data.lost is int &&
+        request.resource.data.good >= 0 &&
+        request.resource.data.damaged >= 0 &&
+        request.resource.data.lost >= 0 &&
+        request.resource.data.good + request.resource.data.damaged +
+          request.resource.data.lost > 0 &&
+        request.resource.data.borrowingId is string &&
+        request.resource.data.itemCode is string &&
+        request.resource.data.returnedAt == request.time;
+      allow update, delete: if false;
+    }
+
+    match /cashAccounts/{id} {
+      allow get: if (activeTreasurer() && id == request.auth.uid) ||
+        sameOrganization();
+      allow list: if sameOrganization();
+      allow create, update: if activeTreasurer() &&
+        id == request.auth.uid &&
+        request.resource.data.keys().hasAll([
+          'organizationId', 'holderUid', 'holderName', 'balance',
+          'lastTransactionId', 'updatedAt']) &&
+        request.resource.data.keys().hasOnly([
+          'organizationId', 'holderUid', 'holderName', 'balance',
+          'lastTransactionId', 'updatedAt']) &&
+        request.resource.data.organizationId == currentProfile().organizationId &&
+        request.resource.data.holderUid == id &&
+        request.resource.data.holderName == currentProfile().name &&
+        request.resource.data.balance is int &&
+        request.resource.data.balance >= 0 &&
+        request.resource.data.lastTransactionId is string &&
+        request.resource.data.updatedAt == request.time &&
+        !exists(ledgerPath(request.resource.data.lastTransactionId)) &&
+        existsAfter(ledgerPath(request.resource.data.lastTransactionId)) &&
+        getAfter(ledgerPath(request.resource.data.lastTransactionId)).data.holderUid == id &&
+        getAfter(ledgerPath(request.resource.data.lastTransactionId)).data.organizationId ==
+          currentProfile().organizationId &&
+        request.resource.data.balance == oldBalance(id) +
+          signedAmount(getAfter(ledgerPath(request.resource.data.lastTransactionId)).data);
+      allow delete: if false;
+    }
+
+    match /treasurerConnections/{id} {
+      allow get: if (activeTreasurer() && !exists(connectionPath(id))) ||
+        sameOrganization();
+      allow list: if sameOrganization();
+      allow create: if activeTreasurer() &&
+        request.resource.data.organizationId == currentProfile().organizationId &&
+        request.resource.data.holderIds is list &&
+        request.resource.data.holderIds.size() == 2 &&
+        request.resource.data.holderIds == sortedPair(
+          request.auth.uid,
+          getAfter(connectionRequestPath(id)).data.requesterId) &&
+        id == pairId(currentProfile().organizationId, request.auth.uid,
+          getAfter(connectionRequestPath(id)).data.requesterId) &&
+        request.resource.data.active == true &&
+        request.resource.data.joinedAt == request.time &&
+        get(connectionRequestPath(id)).data.status == 'pending' &&
+        get(connectionRequestPath(id)).data.recipientId == request.auth.uid &&
+        getAfter(connectionRequestPath(id)).data.status == 'accepted';
+      allow update: if activeTreasurer() && sameOrganization() && (
+        (resource.data.active == true &&
+          resource.data.holderIds.hasAny([request.auth.uid]) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'active', 'disconnectedAt']) &&
+          request.resource.data.active == false &&
+          request.resource.data.disconnectedAt == request.time &&
+          getAfter(connectionRequestPath(id)).data.status == 'disconnected') ||
+        (resource.data.active == false &&
+          request.resource.data.organizationId == resource.data.organizationId &&
+          request.resource.data.holderIds == resource.data.holderIds &&
+          request.resource.data.active == true &&
+          request.resource.data.joinedAt == request.time &&
+          get(connectionRequestPath(id)).data.status == 'pending' &&
+          get(connectionRequestPath(id)).data.recipientId == request.auth.uid &&
+          getAfter(connectionRequestPath(id)).data.status == 'accepted')
+        );
+      allow delete: if false;
+    }
+
+    match /treasurerConnectionRequests/{id} {
+      allow get: if (activeTreasurer() && !exists(connectionRequestPath(id))) ||
+        sameOrganization();
+      allow list: if sameOrganization();
+      allow create: if activeTreasurer() &&
+        request.resource.data.organizationId == currentProfile().organizationId &&
+        request.resource.data.requesterId == request.auth.uid &&
+        request.resource.data.recipientId != request.auth.uid &&
+        id == pairId(currentProfile().organizationId, request.auth.uid,
+          request.resource.data.recipientId) &&
+        treasurerInOrganization(request.resource.data.recipientId) &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.respondedAt == null;
+      allow update: if activeTreasurer() && sameOrganization() &&
+        request.resource.data.organizationId == resource.data.organizationId &&
+        (
+          (resource.data.status in ['rejected', 'cancelled', 'disconnected'] &&
+            request.resource.data.requesterId == request.auth.uid &&
+            [request.resource.data.requesterId,
+              request.resource.data.recipientId].hasAll([
+                resource.data.requesterId, resource.data.recipientId]) &&
+            treasurerInOrganization(request.resource.data.recipientId) &&
+            request.resource.data.status == 'pending' &&
+            request.resource.data.createdAt == request.time &&
+            request.resource.data.respondedAt == null) ||
+          (resource.data.status == 'pending' &&
+            request.resource.data.requesterId == resource.data.requesterId &&
+            request.resource.data.recipientId == resource.data.recipientId &&
+            request.resource.data.createdAt == resource.data.createdAt &&
+            request.resource.data.respondedAt == request.time &&
+            (
+              (request.auth.uid == resource.data.recipientId &&
+                request.resource.data.status in ['accepted', 'rejected'] &&
+                (request.resource.data.status != 'accepted' ||
+                  getAfter(connectionPath(id)).data.active == true)) ||
+              (request.auth.uid == resource.data.requesterId &&
+                request.resource.data.status == 'cancelled')
+            )) ||
+          (resource.data.status == 'accepted' &&
+            request.resource.data.requesterId == resource.data.requesterId &&
+            request.resource.data.recipientId == resource.data.recipientId &&
+            request.resource.data.createdAt == resource.data.createdAt &&
+            [resource.data.requesterId,
+              resource.data.recipientId].hasAny([request.auth.uid]) &&
+            request.resource.data.status == 'disconnected' &&
+            request.resource.data.respondedAt == request.time &&
+            getAfter(connectionPath(id)).data.active == false)
+        );
+      allow delete: if false;
+    }
+
+    match /auditLogs/{id} {
+      allow get, list: if activeAdmin() && sameOrganization();
+      allow write: if false;
+    }
+
+    match /notifications/{id} {
+      allow get, list: if activeMember() &&
+        resource.data.recipientId == request.auth.uid;
+      allow create: if activeTreasurer() &&
+        request.resource.data.keys().hasOnly([
+          'organizationId', 'recipientId', 'sourceUid', 'category',
+          'title', 'body', 'referenceId', 'read', 'createdAt']) &&
+        request.resource.data.organizationId == currentProfile().organizationId &&
+        request.resource.data.sourceUid == request.auth.uid &&
+        request.resource.data.recipientId != request.auth.uid &&
+        treasurerInOrganization(request.resource.data.recipientId) &&
+        request.resource.data.category == 'connection' &&
+        request.resource.data.title in [
+          'Permintaan Koneksi Bendahara', 'Koneksi diterima',
+          'Koneksi ditolak', 'Permintaan dibatalkan',
+          'Koneksi diputuskan'] &&
+        request.resource.data.body is string &&
+        request.resource.data.body.size() <= 240 &&
+        request.resource.data.referenceId is string &&
+        request.resource.data.read == false &&
+        request.resource.data.createdAt == request.time &&
+        existsAfter(connectionRequestPath(request.resource.data.referenceId)) &&
+        [getAfter(connectionRequestPath(
+          request.resource.data.referenceId)).data.requesterId,
+          getAfter(connectionRequestPath(
+          request.resource.data.referenceId)).data.recipientId].hasAll([
+            request.auth.uid, request.resource.data.recipientId]);
+      allow update: if activeMember() &&
+        resource.data.recipientId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']) &&
+        request.resource.data.read == true;
+      allow delete: if false;
+    }
+  }
+}

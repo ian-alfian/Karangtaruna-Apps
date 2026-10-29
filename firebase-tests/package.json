@@ -1,0 +1,15 @@
+{
+  "private": true,
+  "name": "karangtaruna-firestore-rules-tests",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "cd .. && firebase emulators:exec --only firestore --project demo-karangtaruna \"node firebase-tests/check.cjs\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "6.0.0",
+    "firebase": "13.1.0"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "1.14.6"
+  }
+}

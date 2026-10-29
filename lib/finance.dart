@@ -1,20 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'action_dialogs.dart';
 import 'demo_data.dart';
 import 'ui.dart';
 
 class FinanceScreen extends StatefulWidget {
+  /// Membuat halaman keuangan.
   const FinanceScreen({
     super.key,
     required this.role,
     required this.store,
     required this.onNotifications,
+    this.canEditFinance = true,
   });
   final AppRole role;
   final DemoStore store;
   final VoidCallback onNotifications;
+  final bool canEditFinance;
 
+  /// Membuat state interaktif untuk halaman keuangan.
   @override
   State<FinanceScreen> createState() => _FinanceScreenState();
 }
@@ -23,6 +28,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
   TransactionType? filter;
   bool obscured = false;
 
+  /// Membuka formulir pemasukan atau pengeluaran.
   void openForm(TransactionType type) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -31,9 +37,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
     );
   }
 
+  /// Menyusun tampilan halaman keuangan.
   @override
   Widget build(BuildContext context) {
-    final isTreasurer = widget.role == AppRole.bendahara;
+    final isTreasurer =
+        widget.role == AppRole.bendahara && widget.canEditFinance;
     final now = DateTime.now();
     final monthStart = DateTime(now.year, now.month, 1);
     final monthEnd = DateTime(now.year, now.month + 1, 1);
@@ -51,23 +59,31 @@ class _FinanceScreenState extends State<FinanceScreen> {
               title: 'Keuangan',
               onNotifications: widget.onNotifications,
             ),
-            const DemoBanner(),
+            if (!widget.store.isRemote) const DemoBanner(),
             MoneyCard(
-              label: isTreasurer ? 'Saldo Saya' : 'Total Kas Terkoneksi',
+              label: isTreasurer
+                  ? 'Saldo Saya'
+                  : widget.store.isRemote
+                  ? 'Total Kas Terkoneksi'
+                  : 'Total Kas Terkoneksi',
               subtitle: isTreasurer
                   ? 'Kas yang saya pegang'
+                  : widget.store.isRemote
+                  ? 'Kas Bendahara terhubung'
                   : 'Kas bendahara pada contoh ini',
               amount: isTreasurer
-                  ? widget.store.balanceFor('sukardi')
+                  ? widget.store.balanceFor(widget.store.currentHolderId)
                   : widget.store.connectedCash,
-              footerLabel: isTreasurer ? 'Total Kas Terkoneksi' : '2 Bendahara',
+              footerLabel: isTreasurer
+                  ? 'Total Kas Terkoneksi'
+                  : '${widget.store.holders.length} Bendahara',
               footerValue: isTreasurer
                   ? rupiah(widget.store.connectedCash)
                   : null,
               obscured: obscured,
               onToggle: () => setState(() => obscured = !obscured),
             ),
-            if (isTreasurer) ...[
+            if (isTreasurer && widget.canEditFinance) ...[
               const SizedBox(height: 22),
               Row(
                 children: [
@@ -111,36 +127,28 @@ class _FinanceScreenState extends State<FinanceScreen> {
             ),
             const SizedBox(height: 28),
             const SectionHeading(title: 'Kas Bendahara'),
-            Row(
-              children: [
-                _TreasurerCard(
-                  name: 'Sukardi',
-                  amount: widget.store.balanceFor('sukardi'),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => TreasurerDetailPage(
-                        store: widget.store,
-                        holderId: 'sukardi',
-                        name: 'Sukardi',
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final holder in widget.store.holders.entries) ...[
+                    _TreasurerCard(
+                      name: holder.value,
+                      amount: widget.store.balanceFor(holder.key),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => TreasurerDetailPage(
+                            store: widget.store,
+                            holderId: holder.key,
+                            name: holder.value,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 9),
-                _TreasurerCard(
-                  name: 'Rina',
-                  amount: widget.store.balanceFor('rina'),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => TreasurerDetailPage(
-                        store: widget.store,
-                        holderId: 'rina',
-                        name: 'Rina',
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+                    const SizedBox(width: 9),
+                  ],
+                ],
+              ),
             ),
             const SizedBox(height: 28),
             SectionHeading(
@@ -190,6 +198,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
 }
 
 class _TreasurerCard extends StatelessWidget {
+  /// Membuat kartu saldo bendahara.
   const _TreasurerCard({
     required this.name,
     required this.amount,
@@ -199,8 +208,10 @@ class _TreasurerCard extends StatelessWidget {
   final int amount;
   final VoidCallback onTap;
 
+  /// Menyusun tampilan kartu saldo bendahara.
   @override
-  Widget build(BuildContext context) => Expanded(
+  Widget build(BuildContext context) => SizedBox(
+    width: 160,
     child: InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(22),
@@ -237,6 +248,7 @@ class _TreasurerCard extends StatelessWidget {
 }
 
 class _FilterChip extends StatelessWidget {
+  /// Membuat pilihan filter transaksi.
   const _FilterChip({
     required this.label,
     required this.selected,
@@ -246,6 +258,7 @@ class _FilterChip extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
+  /// Menyusun tampilan pilihan filter transaksi.
   @override
   Widget build(BuildContext context) => Expanded(
     child: InkWell(
@@ -273,8 +286,10 @@ class _FilterChip extends StatelessWidget {
 }
 
 class TransactionHistoryPage extends StatefulWidget {
+  /// Membuat riwayat transaksi.
   const TransactionHistoryPage({super.key, required this.store});
   final DemoStore store;
+  /// Membuat state interaktif untuk riwayat transaksi.
   @override
   State<TransactionHistoryPage> createState() => _TransactionHistoryPageState();
 }
@@ -282,6 +297,7 @@ class TransactionHistoryPage extends StatefulWidget {
 class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
   TransactionType? filter;
 
+  /// Menyusun tampilan riwayat transaksi.
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -296,7 +312,7 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
             .toList();
         return PageFrame(
           children: [
-            const DemoBanner(),
+            if (!widget.store.isRemote) const DemoBanner(),
             Row(
               children: [
                 _FilterChip(
@@ -335,9 +351,11 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
 }
 
 class TransactionDetailPage extends StatelessWidget {
+  /// Membuat detail transaksi.
   const TransactionDetailPage({super.key, required this.transaction});
   final CashTransaction transaction;
 
+  /// Menyusun tampilan detail transaksi.
   @override
   Widget build(BuildContext context) {
     final income = transaction.type == TransactionType.income;
@@ -348,7 +366,6 @@ class TransactionDetailPage extends StatelessWidget {
       ),
       body: PageFrame(
         children: [
-          const DemoBanner(),
           Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
@@ -383,7 +400,7 @@ class TransactionDetailPage extends StatelessWidget {
                   _DetailRow(label: 'Catatan', value: transaction.note),
                 const _DetailRow(
                   label: 'Bukti',
-                  value: 'Tidak ada bukti pada data contoh',
+                  value: 'Tidak ada bukti transaksi',
                 ),
               ],
             ),
@@ -395,9 +412,11 @@ class TransactionDetailPage extends StatelessWidget {
 }
 
 class _DetailRow extends StatelessWidget {
+  /// Membuat satu baris detail transaksi.
   const _DetailRow({required this.label, required this.value});
   final String label;
   final String value;
+  /// Menyusun tampilan satu baris detail transaksi.
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 16),
@@ -427,6 +446,7 @@ class _DetailRow extends StatelessWidget {
 }
 
 class TreasurerDetailPage extends StatelessWidget {
+  /// Membuat detail kas bendahara.
   const TreasurerDetailPage({
     super.key,
     required this.store,
@@ -437,6 +457,7 @@ class TreasurerDetailPage extends StatelessWidget {
   final String holderId;
   final String name;
 
+  /// Menyusun tampilan detail kas bendahara.
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(name), backgroundColor: AppColors.background),
@@ -448,7 +469,7 @@ class TreasurerDetailPage extends StatelessWidget {
             .toList();
         return PageFrame(
           children: [
-            const DemoBanner(),
+            if (!store.isRemote) const DemoBanner(),
             MoneyCard(
               label: 'Saldo Dipegang',
               amount: store.balanceFor(holderId),
@@ -472,10 +493,12 @@ class TreasurerDetailPage extends StatelessWidget {
 }
 
 class TransactionForm extends StatefulWidget {
+  /// Membuat formulir pemasukan atau pengeluaran.
   const TransactionForm({super.key, required this.store, required this.type});
   final DemoStore store;
   final TransactionType type;
 
+  /// Membuat state interaktif untuk formulir pemasukan atau pengeluaran.
   @override
   State<TransactionForm> createState() => _TransactionFormState();
 }
@@ -489,11 +512,14 @@ class _TransactionFormState extends State<TransactionForm> {
   String category = 'Lainnya';
   bool saving = false;
 
+  /// Menentukan apakah formulir sedang mencatat pemasukan.
   bool get income => widget.type == TransactionType.income;
+  /// Mengubah teks nominal menjadi angka tanpa titik pemisah.
   int get amount =>
       int.tryParse(amountController.text.replaceAll(RegExp(r'[^0-9]'), '')) ??
       0;
 
+  /// Melepas controller atau langganan saat widget ditutup.
   @override
   void dispose() {
     amountController.dispose();
@@ -502,28 +528,17 @@ class _TransactionFormState extends State<TransactionForm> {
     super.dispose();
   }
 
+  /// Memvalidasi saldo dan nominal, meminta konfirmasi, lalu menyimpan transaksi.
   Future<void> submit() async {
     if (!formKey.currentState!.validate() || saving) return;
-    final approved = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Konfirmasi ${income ? 'Pemasukan' : 'Pengeluaran'}'),
-        content: Text(
-          '${rupiah(amount)} · ${titleController.text.trim()}\n\nData ini hanya tersimpan selama pratinjau aplikasi terbuka.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Periksa Lagi'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Simpan Demo'),
-          ),
-        ],
-      ),
+    final approved = await confirmAction(
+      context,
+      title: 'Konfirmasi ${income ? 'Pemasukan' : 'Pengeluaran'}',
+      message:
+          '${rupiah(amount)} · ${titleController.text.trim()}\n${widget.store.isRemote ? 'Transaksi akan disimpan di Firebase.' : 'Transaksi akan disimpan di perangkat ini.'}',
+      confirmLabel: 'Simpan',
     );
-    if (approved != true || !mounted) return;
+    if (!approved || !mounted) return;
     setState(() => saving = true);
     try {
       await widget.store.addTransaction(
@@ -535,22 +550,32 @@ class _TransactionFormState extends State<TransactionForm> {
         note: noteController.text.trim(),
       );
       if (!mounted) return;
-      final messenger = ScaffoldMessenger.of(context);
-      Navigator.pop(context);
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Transaksi demo berhasil ditambahkan.')),
+      await showActionNotice(
+        context,
+        title: 'Berhasil',
+        message: widget.store.isRemote
+            ? 'Transaksi berhasil disimpan di Firebase.'
+            : 'Transaksi demo berhasil ditambahkan.',
+        buttonLabel: 'Kembali ke Keuangan',
       );
+      if (!mounted) return;
+      Navigator.pop(context);
     } on StateError catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.message)));
+        await showActionNotice(
+          context,
+          title: 'Transaksi gagal',
+          message: error.message,
+          error: true,
+        );
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Data lokal gagal disimpan. Coba lagi.'),
-          ),
+        await showActionNotice(
+          context,
+          title: 'Transaksi gagal',
+          message: 'Transaksi gagal disimpan. Coba lagi.',
+          error: true,
         );
       }
     } finally {
@@ -560,6 +585,7 @@ class _TransactionFormState extends State<TransactionForm> {
     }
   }
 
+  /// Menyusun tampilan formulir pemasukan atau pengeluaran.
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -568,7 +594,7 @@ class _TransactionFormState extends State<TransactionForm> {
     ),
     body: PageFrame(
       children: [
-        const DemoBanner(),
+        if (!widget.store.isRemote) const DemoBanner(),
         Form(
           key: formKey,
           child: Column(
@@ -578,7 +604,8 @@ class _TransactionFormState extends State<TransactionForm> {
               TextFormField(
                 controller: amountController,
                 keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                inputFormatters: [const _ThousandsSeparatorFormatter()],
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 decoration: const InputDecoration(
                   prefixText: 'Rp  ',
                   hintText: '0',
@@ -589,7 +616,11 @@ class _TransactionFormState extends State<TransactionForm> {
                 ),
                 validator: (value) {
                   if (amount <= 0) return 'Nominal harus lebih dari nol.';
-                  if (!income && amount > widget.store.balanceFor('sukardi')) {
+                  if (!income &&
+                      amount >
+                          widget.store.balanceFor(
+                            widget.store.currentHolderId,
+                          )) {
                     return 'Saldo tidak mencukupi.';
                   }
                   return null;
@@ -608,16 +639,21 @@ class _TransactionFormState extends State<TransactionForm> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        rupiah(widget.store.balanceFor('sukardi')),
+                        rupiah(
+                          widget.store.balanceFor(widget.store.currentHolderId),
+                        ),
                         style: const TextStyle(
                           color: AppColors.navy,
                           fontSize: 20,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      const Text(
-                        'Saldo tersedia · Sukardi',
-                        style: TextStyle(color: AppColors.muted, fontSize: 12),
+                      Text(
+                        'Saldo tersedia · ${widget.store.currentHolderName}',
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
@@ -691,10 +727,9 @@ class _TransactionFormState extends State<TransactionForm> {
               ),
               const SizedBox(height: 20),
               const _FieldLabel('Bukti (opsional)'),
-              OutlinedButton.icon(
-                onPressed: () => showPreviewOnly(context),
-                icon: const Icon(Icons.upload_file_outlined),
-                label: const Text('Unggah bukti saat Firebase tersedia'),
+              const Text(
+                'Unggah bukti belum tersedia pada paket Firebase Spark.',
+                style: TextStyle(color: AppColors.muted, fontSize: 11),
               ),
               const SizedBox(height: 32),
               FilledButton(
@@ -702,7 +737,7 @@ class _TransactionFormState extends State<TransactionForm> {
                 child: Text(
                   saving
                       ? 'Menyimpan...'
-                      : 'Simpan ${income ? 'Pemasukan' : 'Pengeluaran'} Demo',
+                      : 'Simpan ${income ? 'Pemasukan' : 'Pengeluaran'}${widget.store.isRemote ? '' : ' Demo'}',
                 ),
               ),
               const SizedBox(height: 8),
@@ -721,8 +756,10 @@ class _TransactionFormState extends State<TransactionForm> {
 }
 
 class _FieldLabel extends StatelessWidget {
+  /// Membuat label kolom formulir.
   const _FieldLabel(this.label);
   final String label;
+  /// Menyusun tampilan label kolom formulir.
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 7),
@@ -735,4 +772,78 @@ class _FieldLabel extends StatelessWidget {
       ),
     ),
   );
+}
+
+class _ThousandsSeparatorFormatter extends TextInputFormatter {
+  /// Membuat pemformat angka nominal dengan pemisah ribuan.
+  const _ThousandsSeparatorFormatter();
+
+  static final RegExp _nonDigits = RegExp(r'[^0-9]');
+
+  /// Menambahkan titik pemisah ribuan sambil menjaga posisi kursor.
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    if (!newValue.composing.isCollapsed) return newValue;
+
+    var digits = newValue.text.replaceAll(_nonDigits, '');
+    final caretOffset = newValue.selection.isValid
+        ? newValue.selection.extentOffset
+        : newValue.text.length;
+    var digitsBeforeCaret = newValue.text
+        .substring(0, caretOffset)
+        .replaceAll(_nonDigits, '')
+        .length;
+
+    // Saat Backspace tepat setelah titik, hapus digit sebelumnya juga.
+    if (oldValue.selection.isCollapsed &&
+        newValue.selection.isCollapsed &&
+        oldValue.text.length == newValue.text.length + 1 &&
+        oldValue.text.replaceAll(_nonDigits, '') == digits &&
+        caretOffset < oldValue.text.length &&
+        oldValue.text[caretOffset] == '.') {
+      final digitIndex =
+          oldValue.text
+              .substring(0, caretOffset)
+              .replaceAll(_nonDigits, '')
+              .length -
+          1;
+      if (digitIndex >= 0) {
+        digits = digits.replaceRange(digitIndex, digitIndex + 1, '');
+        digitsBeforeCaret = digitIndex;
+      }
+    }
+
+    if (digits.isEmpty) {
+      return const TextEditingValue(
+        selection: TextSelection.collapsed(offset: 0),
+      );
+    }
+
+    final buffer = StringBuffer();
+    for (var index = 0; index < digits.length; index++) {
+      if (index > 0 && (digits.length - index) % 3 == 0) buffer.write('.');
+      buffer.write(digits[index]);
+    }
+    final formatted = buffer.toString();
+    var formattedCaret = 0;
+    if (digitsBeforeCaret > 0) {
+      var seenDigits = 0;
+      for (var index = 0; index < formatted.length; index++) {
+        if (formatted[index] != '.') seenDigits++;
+        if (seenDigits == digitsBeforeCaret) {
+          formattedCaret = index + 1;
+          break;
+        }
+      }
+      if (seenDigits < digitsBeforeCaret) formattedCaret = formatted.length;
+    }
+
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formattedCaret),
+    );
+  }
 }

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'demo_data.dart';
 
 class Borrowing {
+  /// Membuat satu catatan peminjaman.
   const Borrowing({
     required this.id,
     required this.itemCode,
@@ -25,13 +26,16 @@ class Borrowing {
   final DateTime dueAt;
   final String note;
 
+  /// Menghitung jumlah barang pinjaman yang belum kembali.
   int get remaining => quantity - returned;
+  /// Menentukan status pengembalian peminjaman.
   String get status => remaining == 0
       ? 'Selesai'
       : dueAt.isBefore(DateTime.now())
       ? 'Terlambat'
       : 'Aktif';
 
+  /// Membuat salinan model dengan nilai tertentu yang diperbarui.
   Borrowing copyWith({int? returned}) => Borrowing(
     id: id,
     itemCode: itemCode,
@@ -42,6 +46,7 @@ class Borrowing {
     dueAt: dueAt,
     note: note,
   );
+  /// Mengubah model menjadi peta data untuk penyimpanan.
   Map<String, Object?> toJson() => {
     'id': id,
     'itemCode': itemCode,
@@ -52,6 +57,7 @@ class Borrowing {
     'dueAt': dueAt.toIso8601String(),
     'note': note,
   };
+  /// Membangun model dari peta data tersimpan.
   factory Borrowing.fromJson(Map<String, dynamic> json) => Borrowing(
     id: json['id'] as String,
     itemCode: json['itemCode'] as String,
@@ -65,6 +71,7 @@ class Borrowing {
 }
 
 class InventoryMovement {
+  /// Membuat satu perubahan stok.
   const InventoryMovement({
     required this.id,
     required this.itemCode,
@@ -82,6 +89,7 @@ class InventoryMovement {
   final int afterAvailable;
   final DateTime at;
 
+  /// Mengubah model menjadi peta data untuk penyimpanan.
   Map<String, Object?> toJson() => {
     'id': id,
     'itemCode': itemCode,
@@ -91,6 +99,7 @@ class InventoryMovement {
     'afterAvailable': afterAvailable,
     'at': at.toIso8601String(),
   };
+  /// Membangun model dari peta data tersimpan.
   factory InventoryMovement.fromJson(Map<String, dynamic> json) =>
       InventoryMovement(
         id: json['id'] as String,
@@ -104,11 +113,14 @@ class InventoryMovement {
 }
 
 class InventoryStore extends ChangeNotifier {
+  /// Membuat data inventaris lokal.
   InventoryStore({SharedPreferencesAsync? preferences})
     : _preferences = preferences ?? SharedPreferencesAsync();
 
   static const _storageKey = 'karang_taruna_demo_inventory_v1';
   final SharedPreferencesAsync _preferences;
+  /// Menandai apakah store memakai Firestore atau data lokal.
+  bool get isRemote => false;
   List<InventoryItem> _items = List.of(DemoStore.inventory);
   List<Borrowing> _borrowings = [
     Borrowing(
@@ -140,18 +152,27 @@ class InventoryStore extends ChangeNotifier {
     ),
   ];
   List<InventoryMovement> _movements = [];
+  Map<String, String> _photos = {};
 
+  /// Mengambil daftar barang aktif.
   List<InventoryItem> get items =>
       List.unmodifiable(_items.where((item) => !item.archived));
+  /// Mengambil daftar barang yang diarsipkan.
   List<InventoryItem> get archivedItems =>
       List.unmodifiable(_items.where((item) => item.archived));
+  /// Mengambil daftar peminjaman.
   List<Borrowing> get borrowings => List.unmodifiable(_borrowings.reversed);
+  /// Mengambil riwayat perubahan stok untuk satu barang.
   List<InventoryMovement> movementsFor(String code) => List.unmodifiable(
     _movements.where((movement) => movement.itemCode == code).toList().reversed,
   );
+  /// Mencari barang berdasarkan kode inventaris.
   InventoryItem itemFor(String code) =>
       _items.firstWhere((item) => item.code == code);
+  /// Mengambil foto yang tersimpan untuk kode barang.
+  Future<String?> photoFor(String code) async => _photos[code.toUpperCase()];
 
+  /// Memuat data tersimpan dan menyiapkan pendengar perubahan.
   Future<void> load() async {
     final raw = await _preferences.getString(_storageKey);
     if (raw == null) return;
@@ -167,13 +188,18 @@ class InventoryStore extends ChangeNotifier {
           (value) => InventoryMovement.fromJson(value as Map<String, dynamic>),
         )
         .toList();
+    final photos = (data['photos'] as Map<String, dynamic>? ?? {}).map(
+      (key, value) => MapEntry(key, value as String),
+    );
     _verify(items, borrowings);
     _items = items;
     _borrowings = borrowings;
     _movements = movements;
+    _photos = photos;
     notifyListeners();
   }
 
+  /// Memeriksa konsistensi jumlah stok dan peminjaman.
   void _verify(List<InventoryItem> items, List<Borrowing> borrowings) {
     for (final item in items) {
       final activeBorrowed = borrowings
@@ -189,24 +215,29 @@ class InventoryStore extends ChangeNotifier {
     }
   }
 
+  /// Menyimpan perubahan inventaris lokal dan memberi tahu pendengar.
   Future<void> _commit(
     List<InventoryItem> items,
     List<Borrowing> borrowings,
-    List<InventoryMovement> movements,
-  ) async {
+    List<InventoryMovement> movements, {
+    Map<String, String>? photos,
+  }) async {
     _verify(items, borrowings);
     final data = jsonEncode({
       'items': items.map((item) => item.toJson()).toList(),
       'borrowings': borrowings.map((borrowing) => borrowing.toJson()).toList(),
       'movements': movements.map((movement) => movement.toJson()).toList(),
+      'photos': photos ?? _photos,
     });
     await _preferences.setString(_storageKey, data);
     _items = items;
     _borrowings = borrowings;
     _movements = movements;
+    _photos = photos ?? _photos;
     notifyListeners();
   }
 
+  /// Membuat catatan perubahan stok dengan informasi waktu dan alasan.
   InventoryMovement _movement(
     InventoryItem item,
     String action,
@@ -222,12 +253,14 @@ class InventoryStore extends ChangeNotifier {
     at: DateTime.now(),
   );
 
+  /// Memvalidasi dan menyimpan barang baru beserta stok serta fotonya.
   Future<void> addItem({
     required String code,
     required String name,
     required String category,
     required String location,
     required int quantity,
+    String? photoBase64,
   }) async {
     if (code.trim().isEmpty ||
         name.trim().isEmpty ||
@@ -263,14 +296,17 @@ class InventoryStore extends ChangeNotifier {
           at: DateTime.now(),
         ),
       ],
+      photos: photoBase64 == null ? null : {..._photos, item.code: photoBase64},
     );
   }
 
+  /// Memperbarui informasi dan foto barang yang sudah ada.
   Future<void> editItem(
     String code, {
     required String name,
     required String category,
     required String location,
+    String? photoBase64,
   }) async {
     if (name.trim().isEmpty || location.trim().isEmpty) {
       throw ArgumentError('Nama dan lokasi wajib diisi.');
@@ -290,17 +326,25 @@ class InventoryStore extends ChangeNotifier {
               : item,
         )
         .toList();
-    await _commit(next, _borrowings, [
-      ..._movements,
-      _movement(
-        original,
-        'Edit barang',
-        'Metadata diperbarui',
-        original.available,
-      ),
-    ]);
+    await _commit(
+      next,
+      _borrowings,
+      [
+        ..._movements,
+        _movement(
+          original,
+          'Edit barang',
+          'Metadata diperbarui',
+          original.available,
+        ),
+      ],
+      photos: photoBase64 == null
+          ? null
+          : {..._photos, original.code: photoBase64},
+    );
   }
 
+  /// Menambah atau mengurangi stok dan mencatat alasannya.
   Future<void> adjustStock(String code, int delta, String reason) async {
     if (delta == 0 || reason.trim().isEmpty) {
       throw ArgumentError('Jumlah dan alasan perubahan wajib diisi.');
@@ -331,6 +375,7 @@ class InventoryStore extends ChangeNotifier {
     ]);
   }
 
+  /// Mengarsipkan barang setelah memastikan tidak ada peminjaman aktif.
   Future<void> archiveItem(String code) async {
     final original = itemFor(code);
     if (original.borrowed > 0) {
@@ -350,6 +395,7 @@ class InventoryStore extends ChangeNotifier {
     ]);
   }
 
+  /// Mencatat peminjaman dan mengurangi stok tersedia.
   Future<void> borrowItem({
     required String code,
     required String borrower,
@@ -399,6 +445,7 @@ class InventoryStore extends ChangeNotifier {
     );
   }
 
+  /// Mencatat pengembalian serta memperbarui stok, kerusakan, atau kehilangan.
   Future<void> returnItem(
     String borrowingId, {
     required int good,

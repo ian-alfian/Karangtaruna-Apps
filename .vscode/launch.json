@@ -1,0 +1,28 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Flutter Web (localhost:5080)",
+      "type": "dart",
+      "request": "launch",
+      "program": "lib/main.dart",
+      "deviceId": "chrome",
+      "env": {
+        "PUB_HOSTED_URL": "https://pub.flutter-io.cn"
+      },
+      "toolArgs": [
+        "--web-hostname=127.0.0.1",
+        "--web-port=5080"
+      ]
+    },
+    {
+      "name": "Flutter Android (perangkat terpilih)",
+      "type": "dart",
+      "request": "launch",
+      "program": "lib/main.dart",
+      "env": {
+        "PUB_HOSTED_URL": "https://pub.flutter-io.cn"
+      }
+    }
+  ]
+}

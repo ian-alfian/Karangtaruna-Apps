@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "318796675217",
+    "project_id": "karangtaruna-apps",
+    "storage_bucket": "karangtaruna-apps.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:318796675217:android:f957625849c08292bce730",
+        "android_client_info": {
+          "package_name": "com.example.karangtaruna_apps"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCecFk80YGcbzY8e_T4XL6BB-H3ObdHi6A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 
+import 'action_dialogs.dart';
 import 'demo_data.dart';
 import 'inventory_forms.dart';
+import 'inventory_photo.dart';
 import 'inventory_store.dart';
 import 'ui.dart';
 
 class InventoryScreen extends StatefulWidget {
+  /// Membuat halaman daftar inventaris.
   const InventoryScreen({
     super.key,
     required this.role,
@@ -16,6 +19,7 @@ class InventoryScreen extends StatefulWidget {
   final InventoryStore store;
   final VoidCallback onNotifications;
 
+  /// Membuat state interaktif untuk halaman daftar inventaris.
   @override
   State<InventoryScreen> createState() => _InventoryScreenState();
 }
@@ -24,12 +28,14 @@ class _InventoryScreenState extends State<InventoryScreen> {
   String category = 'Semua';
   String query = '';
 
+  /// Menyusun tampilan halaman daftar inventaris.
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: widget.store,
     builder: (context, _) => _buildContent(context),
   );
 
+  /// Menyusun daftar dan ringkasan inventaris berdasarkan filter.
   Widget _buildContent(BuildContext context) {
     final items = widget.store.items
         .where(
@@ -53,7 +59,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
           title: 'Inventaris',
           onNotifications: widget.onNotifications,
         ),
-        const DemoBanner(),
+        if (!widget.store.isRemote) const DemoBanner(),
         if (widget.role == AppRole.admin) ...[
           FilledButton.icon(
             onPressed: () => Navigator.of(context).push(
@@ -186,6 +192,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
   }
 }
 
+/// Memilih ikon berdasarkan kategori barang.
 IconData _iconFor(InventoryItem item) => switch (item.category) {
   'Elektronik' => Icons.speaker_rounded,
   'Peralatan' => Icons.chair_alt_rounded,
@@ -194,10 +201,12 @@ IconData _iconFor(InventoryItem item) => switch (item.category) {
 };
 
 class _InventoryCard extends StatelessWidget {
+  /// Membuat kartu satu barang inventaris.
   const _InventoryCard({required this.item, required this.onTap});
   final InventoryItem item;
   final VoidCallback onTap;
 
+  /// Menyusun tampilan kartu satu barang inventaris.
   @override
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
@@ -269,6 +278,7 @@ class _InventoryCard extends StatelessWidget {
 }
 
 class _StockMetric extends StatelessWidget {
+  /// Membuat angka ringkasan stok.
   const _StockMetric({
     required this.label,
     required this.value,
@@ -278,6 +288,7 @@ class _StockMetric extends StatelessWidget {
   final String value;
   final bool highlight;
 
+  /// Menyusun tampilan angka ringkasan stok.
   @override
   Widget build(BuildContext context) => Expanded(
     child: Column(
@@ -301,7 +312,8 @@ class _StockMetric extends StatelessWidget {
   );
 }
 
-class InventoryDetailPage extends StatelessWidget {
+class InventoryDetailPage extends StatefulWidget {
+  /// Membuat detail barang inventaris.
   const InventoryDetailPage({
     super.key,
     required this.item,
@@ -312,39 +324,129 @@ class InventoryDetailPage extends StatelessWidget {
   final AppRole role;
   final InventoryStore store;
 
+  /// Membuat state interaktif untuk detail barang inventaris.
+  @override
+  State<InventoryDetailPage> createState() => _InventoryDetailPageState();
+}
+
+class _InventoryDetailPageState extends State<InventoryDetailPage> {
+  late Future<String?> photo;
+
+  /// Menyiapkan state dan pendengar awal saat widget dibuat.
+  @override
+  void initState() {
+    super.initState();
+    photo = widget.store.photoFor(widget.item.code);
+  }
+
+  /// Memperbarui informasi dan foto barang yang sudah ada.
+  Future<void> editItem() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ItemFormPage(
+          store: widget.store,
+          existing: widget.store.itemFor(widget.item.code),
+        ),
+      ),
+    );
+    if (mounted) {
+      setState(() => photo = widget.store.photoFor(widget.item.code));
+    }
+  }
+
+  /// Menyusun tampilan detail barang inventaris.
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: store,
-    builder: (context, _) => _buildDetail(context, store.itemFor(item.code)),
+    animation: widget.store,
+    builder: (context, _) =>
+        _buildDetail(context, widget.store.itemFor(widget.item.code)),
   );
 
+  /// Menyusun detail barang, foto, stok, dan tombol tindakan.
   Widget _buildDetail(BuildContext context, InventoryItem item) => Scaffold(
     appBar: AppBar(
       title: const Text('Detail Inventaris'),
       backgroundColor: AppColors.background,
+      actions: [
+        if (widget.role == AppRole.admin && !item.archived)
+          TextButton(onPressed: editItem, child: const Text('Edit')),
+      ],
     ),
     body: PageFrame(
       children: [
-        const DemoBanner(),
-        Container(
-          height: 190,
-          decoration: BoxDecoration(
-            color: AppColors.paleBlue,
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: Icon(_iconFor(item), size: 84, color: AppColors.blue),
+        if (!widget.store.isRemote) const DemoBanner(),
+        FutureBuilder<String?>(
+          future: photo,
+          builder: (context, snapshot) =>
+              snapshot.connectionState == ConnectionState.waiting
+              ? Container(
+                  height: 205,
+                  decoration: BoxDecoration(
+                    color: AppColors.paleBlue,
+                    borderRadius: BorderRadius.circular(22),
+                  ),
+                  child: const Center(child: CircularProgressIndicator()),
+                )
+              : InventoryPhotoView(base64: snapshot.data),
         ),
-        const SizedBox(height: 20),
-        Text(item.name, style: Theme.of(context).textTheme.headlineMedium),
-        const SizedBox(height: 4),
-        Text(
-          '${item.code} · ${item.category}',
-          style: const TextStyle(color: AppColors.muted),
-        ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 17),
         Row(
           children: [
-            StatTile(value: '${item.total}', label: 'Total unit'),
+            Expanded(
+              child: Text(
+                item.name,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: item.available > 0
+                    ? const Color(0xFFE4F8EE)
+                    : const Color(0xFFFFE8E8),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                item.available > 0 ? '• Tersedia' : '• Tidak tersedia',
+                style: TextStyle(
+                  color: item.available > 0
+                      ? AppColors.green
+                      : const Color(0xFFC62828),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 3),
+        Text(item.code, style: const TextStyle(color: AppColors.muted)),
+        const SizedBox(height: 18),
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(22),
+          ),
+          child: Column(
+            children: [
+              _InfoRow(label: 'Kategori', value: item.category),
+              const Divider(color: AppColors.border),
+              _InfoRow(label: 'Lokasi', value: item.location),
+              const Divider(color: AppColors.border),
+              _InfoRow(
+                label: 'Kondisi',
+                value: item.damaged == 0 && item.lost == 0
+                    ? 'Baik'
+                    : '${item.damaged} rusak · ${item.lost} hilang',
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            StatTile(value: '${item.total}', label: 'Total Stok'),
             const SizedBox(width: 8),
             StatTile(
               value: '${item.available}',
@@ -355,93 +457,58 @@ class InventoryDetailPage extends StatelessWidget {
             StatTile(value: '${item.borrowed}', label: 'Dipinjam'),
           ],
         ),
-        const SizedBox(height: 20),
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(22),
-          ),
-          child: Column(
-            children: [
-              _InfoRow(label: 'Rusak', value: '${item.damaged} unit'),
-              const Divider(color: AppColors.border),
-              _InfoRow(label: 'Hilang', value: '${item.lost} unit'),
-              const Divider(color: AppColors.border),
-              _InfoRow(label: 'Lokasi', value: item.location),
-              const Divider(color: AppColors.border),
-              _InfoRow(
-                label: 'Status',
-                value: item.available > 0 ? 'Tersedia' : 'Tidak tersedia',
-              ),
-            ],
-          ),
-        ),
-        if (role == AppRole.admin) ...[
-          const SizedBox(height: 25),
+        if (widget.role == AppRole.admin) ...[
+          const SizedBox(height: 18),
           if (!item.archived)
-            FilledButton(
+            ActionPillButton(
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) => StockAdjustPage(store: store, item: item),
+                  builder: (_) =>
+                      StockAdjustPage(store: widget.store, item: item),
                 ),
               ),
-              child: const Text('Update Stok'),
-            ),
-          const SizedBox(height: 8),
-          if (!item.archived)
-            OutlinedButton(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => ItemFormPage(store: store, existing: item),
-                ),
-              ),
-              child: const Text('Edit Barang'),
+              label: 'Update Stok',
             ),
           const SizedBox(height: 8),
           OutlinedButton(
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => InventoryHistoryPage(store: store, item: item),
+                builder: (_) =>
+                    InventoryHistoryPage(store: widget.store, item: item),
               ),
             ),
             child: const Text('Riwayat Perubahan'),
           ),
           if (!item.archived) ...[
             const SizedBox(height: 8),
-            TextButton(
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: AppColors.navy),
               onPressed: () async {
-                final confirmed = await showDialog<bool>(
-                  context: context,
-                  builder: (dialogContext) => AlertDialog(
-                    title: const Text('Arsip barang?'),
-                    content: const Text(
-                      'Barang yang diarsipkan tetap ada dalam riwayat dan tidak muncul di daftar aktif.',
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(dialogContext, false),
-                        child: const Text('Batal'),
-                      ),
-                      FilledButton(
-                        onPressed: () => Navigator.pop(dialogContext, true),
-                        child: const Text('Arsipkan'),
-                      ),
-                    ],
-                  ),
+                final confirmed = await confirmAction(
+                  context,
+                  title: 'Arsip barang?',
+                  message: 'Barang yang diarsipkan tetap ada dalam riwayat dan tidak muncul di daftar aktif.',
+                  confirmLabel: 'Arsipkan',
                 );
-                if (confirmed != true || !context.mounted) return;
+                if (!confirmed || !context.mounted) return;
                 try {
-                  await store.archiveItem(item.code);
-                  if (context.mounted) Navigator.pop(context);
+                  await widget.store.archiveItem(item.code);
+                  if (context.mounted) {
+                    await showActionNotice(
+                      context,
+                      title: 'Berhasil',
+                      message: '${item.name} telah diarsipkan.',
+                      buttonLabel: 'Kembali ke Inventaris',
+                    );
+                    if (context.mounted) Navigator.pop(context);
+                  }
                 } catch (error) {
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          error.toString().replaceFirst('Bad state: ', ''),
-                        ),
-                      ),
+                    await showActionNotice(
+                      context,
+                      title: 'Arsip gagal',
+                      message: error.toString().replaceFirst('Bad state: ', ''),
+                      error: true,
                     );
                   }
                 }
@@ -456,9 +523,11 @@ class InventoryDetailPage extends StatelessWidget {
 }
 
 class _InfoRow extends StatelessWidget {
+  /// Membuat satu baris informasi barang.
   const _InfoRow({required this.label, required this.value});
   final String label;
   final String value;
+  /// Menyusun tampilan satu baris informasi barang.
   @override
   Widget build(BuildContext context) => Row(
     children: [
@@ -481,6 +550,7 @@ class _InfoRow extends StatelessWidget {
 }
 
 class BorrowingHistoryPage extends StatelessWidget {
+  /// Membuat riwayat peminjaman.
   const BorrowingHistoryPage({
     super.key,
     required this.role,
@@ -489,6 +559,7 @@ class BorrowingHistoryPage extends StatelessWidget {
   final AppRole role;
   final InventoryStore store;
 
+  /// Menyusun tampilan riwayat peminjaman.
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -499,7 +570,7 @@ class BorrowingHistoryPage extends StatelessWidget {
       animation: store,
       builder: (context, _) => PageFrame(
         children: [
-          const DemoBanner(),
+          if (!store.isRemote) const DemoBanner(),
           if (role == AppRole.admin) ...[
             FilledButton(
               onPressed: () => Navigator.of(context).push(

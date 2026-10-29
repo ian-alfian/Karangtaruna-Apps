@@ -1,5 +1,9 @@
 allprojects {
     repositories {
+        maven {
+            url = uri(rootProject.file("local-maven"))
+            content { includeGroup("io.flutter") }
+        }
         google()
         mavenCentral()
     }

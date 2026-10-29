@@ -1,22 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'action_dialogs.dart';
 import 'demo_data.dart';
 import 'inventory_store.dart';
+import 'inventory_photo.dart';
 import 'ui.dart';
 
-void _showError(BuildContext context, Object error) {
+/// Menampilkan pesan kesalahan pada formulir inventaris.
+Future<void> _showError(BuildContext context, Object error) async {
   final message = error
       .toString()
       .replaceFirst('Bad state: ', '')
       .replaceFirst('Invalid argument(s): ', '');
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  /// Menampilkan dialog hasil tindakan atau pesan kesalahan.
+  await showActionNotice(
+    context,
+    title: 'Tindakan gagal',
+    message: message,
+    error: true,
+  );
 }
 
 class ItemFormPage extends StatefulWidget {
+  /// Membuat formulir tambah atau ubah barang.
   const ItemFormPage({super.key, required this.store, this.existing});
   final InventoryStore store;
   final InventoryItem? existing;
+  /// Membuat state interaktif untuk formulir tambah atau ubah barang.
   @override
   State<ItemFormPage> createState() => _ItemFormPageState();
 }
@@ -35,7 +46,47 @@ class _ItemFormPageState extends State<ItemFormPage> {
   final quantity = TextEditingController();
   late String category = widget.existing?.category ?? 'Peralatan';
   bool saving = false;
+  bool pickingPhoto = false;
+  bool photoChanged = false;
+  String? photoBase64;
 
+  /// Menyiapkan state dan pendengar awal saat widget dibuat.
+  @override
+  void initState() {
+    super.initState();
+    if (widget.existing != null) _loadPhoto();
+  }
+
+  /// Memuat foto barang saat membuka formulir ubah.
+  Future<void> _loadPhoto() async {
+    try {
+      final photo = await widget.store.photoFor(widget.existing!.code);
+      if (mounted && !photoChanged) setState(() => photoBase64 = photo);
+    } catch (error) {
+      if (mounted) await _showError(context, error);
+    }
+  }
+
+  /// Memilih foto baru dan memperbarui pratinjau.
+  Future<void> _choosePhoto() async {
+    if (pickingPhoto || saving) return;
+    setState(() => pickingPhoto = true);
+    try {
+      final selected = await pickInventoryPhoto();
+      if (selected != null && mounted) {
+        setState(() {
+          photoBase64 = selected;
+          photoChanged = true;
+        });
+      }
+    } catch (error) {
+      if (mounted) await _showError(context, error);
+    } finally {
+      if (mounted) setState(() => pickingPhoto = false);
+    }
+  }
+
+  /// Melepas controller atau langganan saat widget ditutup.
   @override
   void dispose() {
     code.dispose();
@@ -45,6 +96,7 @@ class _ItemFormPageState extends State<ItemFormPage> {
     super.dispose();
   }
 
+  /// Memvalidasi data lalu menambah atau memperbarui barang beserta fotonya.
   Future<void> save() async {
     if (!formKey.currentState!.validate() || saving) return;
     setState(() => saving = true);
@@ -56,6 +108,7 @@ class _ItemFormPageState extends State<ItemFormPage> {
           category: category,
           location: location.text,
           quantity: int.parse(quantity.text),
+          photoBase64: photoBase64,
         );
       } else {
         await widget.store.editItem(
@@ -63,27 +116,31 @@ class _ItemFormPageState extends State<ItemFormPage> {
           name: name.text,
           category: category,
           location: location.text,
+          photoBase64: photoChanged ? photoBase64 : null,
         );
       }
       if (!mounted) return;
-      final messenger = ScaffoldMessenger.of(context);
-      Navigator.pop(context);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            widget.existing == null
-                ? 'Barang tersimpan di perangkat.'
-                : 'Data barang diperbarui.',
-          ),
-        ),
+      final message = widget.existing == null
+          ? widget.store.isRemote
+                ? 'Barang tersimpan di database.'
+                : 'Barang tersimpan di perangkat.'
+          : 'Data barang diperbarui.';
+      await showActionNotice(
+        context,
+        title: 'Berhasil',
+        message: message,
+        buttonLabel: 'Kembali ke Inventaris',
       );
+      if (!mounted) return;
+      Navigator.pop(context);
     } catch (error) {
-      if (mounted) _showError(context, error);
+      if (mounted) await _showError(context, error);
     } finally {
       if (mounted) setState(() => saving = false);
     }
   }
 
+  /// Menyusun tampilan formulir tambah atau ubah barang.
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -92,7 +149,7 @@ class _ItemFormPageState extends State<ItemFormPage> {
     ),
     body: PageFrame(
       children: [
-        const DemoBanner(),
+        if (!widget.store.isRemote) const DemoBanner(),
         Form(
           key: formKey,
           child: Column(
@@ -159,9 +216,30 @@ class _ItemFormPageState extends State<ItemFormPage> {
                   style: TextStyle(color: AppColors.muted, fontSize: 11),
                 ),
               ],
+              const SizedBox(height: 18),
+              const _FormLabel('Foto Barang'),
+              const SizedBox(height: 8),
+              InventoryPhotoView(base64: photoBase64, height: 190),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: saving || pickingPhoto ? null : _choosePhoto,
+                icon: const Icon(Icons.add_photo_alternate_outlined),
+                label: Text(
+                  pickingPhoto
+                      ? 'Memproses foto...'
+                      : photoBase64 == null
+                      ? 'Pilih Foto Barang'
+                      : 'Ganti Foto Barang',
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'JPG atau PNG. Foto diperkecil otomatis sebelum disimpan.',
+                style: TextStyle(color: AppColors.muted, fontSize: 11),
+              ),
               const SizedBox(height: 28),
               FilledButton(
-                onPressed: saving ? null : save,
+                onPressed: saving || pickingPhoto ? null : save,
                 child: Text(saving ? 'Menyimpan...' : 'Simpan Barang'),
               ),
             ],
@@ -173,9 +251,11 @@ class _ItemFormPageState extends State<ItemFormPage> {
 }
 
 class StockAdjustPage extends StatefulWidget {
+  /// Membuat formulir penyesuaian stok.
   const StockAdjustPage({super.key, required this.store, required this.item});
   final InventoryStore store;
   final InventoryItem item;
+  /// Membuat state interaktif untuk formulir penyesuaian stok.
   @override
   State<StockAdjustPage> createState() => _StockAdjustPageState();
 }
@@ -187,6 +267,7 @@ class _StockAdjustPageState extends State<StockAdjustPage> {
   bool adding = true;
   bool saving = false;
 
+  /// Melepas controller atau langganan saat widget ditutup.
   @override
   void dispose() {
     quantity.dispose();
@@ -194,50 +275,43 @@ class _StockAdjustPageState extends State<StockAdjustPage> {
     super.dispose();
   }
 
+  /// Memvalidasi jumlah serta alasan, lalu menyesuaikan stok.
   Future<void> save() async {
     if (!formKey.currentState!.validate() || saving) return;
     final amount = int.parse(quantity.text) * (adding ? 1 : -1);
     final current = widget.store.itemFor(widget.item.code);
     if (current.available + amount < 0) {
-      _showError(context, StateError('Stok tersedia tidak mencukupi.'));
+      await _showError(context, StateError('Stok tersedia tidak mencukupi.'));
       return;
     }
-    final approved = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Review Update Stok'),
-        content: Text(
+    final approved = await confirmAction(
+      context,
+      title: 'Review Update Stok',
+      message:
           '${current.name}\n${current.available} → ${current.available + amount} unit tersedia\nAlasan: ${reason.text.trim()}',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Batal'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Simpan'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Simpan',
     );
-    if (approved != true || !mounted) return;
+    if (!approved || !mounted) return;
     setState(() => saving = true);
     try {
       await widget.store.adjustStock(widget.item.code, amount, reason.text);
       if (!mounted) return;
-      final messenger = ScaffoldMessenger.of(context);
-      Navigator.pop(context);
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Stok lokal berhasil diperbarui.')),
+      await showActionNotice(
+        context,
+        title: 'Berhasil',
+        message: 'Stok berhasil diperbarui.',
+        buttonLabel: 'Kembali ke Inventaris',
       );
+      if (!mounted) return;
+      Navigator.pop(context);
     } catch (error) {
-      if (mounted) _showError(context, error);
+      if (mounted) await _showError(context, error);
     } finally {
       if (mounted) setState(() => saving = false);
     }
   }
 
+  /// Menyusun tampilan formulir penyesuaian stok.
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -246,7 +320,7 @@ class _StockAdjustPageState extends State<StockAdjustPage> {
     ),
     body: PageFrame(
       children: [
-        const DemoBanner(),
+        if (!widget.store.isRemote) const DemoBanner(),
         Text(widget.item.name, style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
         Text(
@@ -306,8 +380,10 @@ class _StockAdjustPageState extends State<StockAdjustPage> {
 }
 
 class BorrowFormPage extends StatefulWidget {
+  /// Membuat formulir peminjaman barang.
   const BorrowFormPage({super.key, required this.store});
   final InventoryStore store;
+  /// Membuat state interaktif untuk formulir peminjaman barang.
   @override
   State<BorrowFormPage> createState() => _BorrowFormPageState();
 }
@@ -321,6 +397,7 @@ class _BorrowFormPageState extends State<BorrowFormPage> {
   DateTime due = DateTime.now().add(const Duration(days: 7));
   bool saving = false;
 
+  /// Melepas controller atau langganan saat widget ditutup.
   @override
   void dispose() {
     borrower.dispose();
@@ -329,34 +406,23 @@ class _BorrowFormPageState extends State<BorrowFormPage> {
     super.dispose();
   }
 
+  /// Memvalidasi peminjaman lalu menyimpan catatannya.
   Future<void> save() async {
     if (!formKey.currentState!.validate() || saving) return;
     final item = widget.store.itemFor(code!);
     final count = int.parse(quantity.text);
     if (count > item.available) {
-      _showError(context, StateError('Stok tersedia tidak mencukupi.'));
+      await _showError(context, StateError('Stok tersedia tidak mencukupi.'));
       return;
     }
-    final approved = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Review Peminjaman'),
-        content: Text(
+    final approved = await confirmAction(
+      context,
+      title: 'Review Peminjaman',
+      message:
           '${item.name}\n${borrower.text.trim()} · $count unit\nTenggat ${shortDate(due)}',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Batal'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Simpan'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Simpan',
     );
-    if (approved != true || !mounted) return;
+    if (!approved || !mounted) return;
     setState(() => saving = true);
     try {
       await widget.store.borrowItem(
@@ -367,18 +433,22 @@ class _BorrowFormPageState extends State<BorrowFormPage> {
         note: note.text,
       );
       if (!mounted) return;
-      final messenger = ScaffoldMessenger.of(context);
-      Navigator.pop(context);
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Peminjaman lokal tercatat.')),
+      await showActionNotice(
+        context,
+        title: 'Berhasil',
+        message: 'Peminjaman berhasil dicatat.',
+        buttonLabel: 'Kembali ke Inventaris',
       );
+      if (!mounted) return;
+      Navigator.pop(context);
     } catch (error) {
-      if (mounted) _showError(context, error);
+      if (mounted) await _showError(context, error);
     } finally {
       if (mounted) setState(() => saving = false);
     }
   }
 
+  /// Menyusun tampilan formulir peminjaman barang.
   @override
   Widget build(BuildContext context) {
     final availableItems = widget.store.items
@@ -391,7 +461,7 @@ class _BorrowFormPageState extends State<BorrowFormPage> {
       ),
       body: PageFrame(
         children: [
-          const DemoBanner(),
+          if (!widget.store.isRemote) const DemoBanner(),
           Form(
             key: formKey,
             child: Column(
@@ -472,6 +542,7 @@ class _BorrowFormPageState extends State<BorrowFormPage> {
 }
 
 class ReturnFormPage extends StatefulWidget {
+  /// Membuat formulir pengembalian barang.
   const ReturnFormPage({
     super.key,
     required this.store,
@@ -479,6 +550,7 @@ class ReturnFormPage extends StatefulWidget {
   });
   final InventoryStore store;
   final Borrowing borrowing;
+  /// Membuat state interaktif untuk formulir pengembalian barang.
   @override
   State<ReturnFormPage> createState() => _ReturnFormPageState();
 }
@@ -489,9 +561,11 @@ class _ReturnFormPageState extends State<ReturnFormPage> {
   final lost = TextEditingController(text: '0');
   final note = TextEditingController();
   bool saving = false;
+  /// Membaca jumlah barang dari kolom formulir.
   int count(TextEditingController controller) =>
       int.tryParse(controller.text) ?? 0;
 
+  /// Melepas controller atau langganan saat widget ditutup.
   @override
   void dispose() {
     good.dispose();
@@ -501,10 +575,11 @@ class _ReturnFormPageState extends State<ReturnFormPage> {
     super.dispose();
   }
 
+  /// Memvalidasi jumlah kembali, rusak, dan hilang sebelum menyimpan.
   Future<void> save() async {
     final total = count(good) + count(damaged) + count(lost);
     if (total <= 0 || total > widget.borrowing.remaining) {
-      _showError(
+      await _showError(
         context,
         ArgumentError(
           'Jumlah kembali harus 1–${widget.borrowing.remaining} unit.',
@@ -513,32 +588,20 @@ class _ReturnFormPageState extends State<ReturnFormPage> {
       return;
     }
     if ((count(damaged) > 0 || count(lost) > 0) && note.text.trim().isEmpty) {
-      _showError(
+      await _showError(
         context,
         ArgumentError('Catatan wajib untuk barang rusak atau hilang.'),
       );
       return;
     }
-    final approved = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Review Pengembalian'),
-        content: Text(
+    final approved = await confirmAction(
+      context,
+      title: 'Review Pengembalian',
+      message:
           'Baik ${good.text} · Rusak ${damaged.text} · Hilang ${lost.text}\nHanya barang baik kembali ke stok tersedia.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Batal'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Simpan'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Simpan',
     );
-    if (approved != true || !mounted || saving) return;
+    if (!approved || !mounted || saving) return;
     setState(() => saving = true);
     try {
       await widget.store.returnItem(
@@ -549,18 +612,22 @@ class _ReturnFormPageState extends State<ReturnFormPage> {
         note: note.text,
       );
       if (!mounted) return;
-      final messenger = ScaffoldMessenger.of(context);
-      Navigator.pop(context);
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Pengembalian lokal tercatat.')),
+      await showActionNotice(
+        context,
+        title: 'Berhasil',
+        message: 'Pengembalian barang berhasil dicatat.',
+        buttonLabel: 'Kembali ke Inventaris',
       );
+      if (!mounted) return;
+      Navigator.pop(context);
     } catch (error) {
-      if (mounted) _showError(context, error);
+      if (mounted) await _showError(context, error);
     } finally {
       if (mounted) setState(() => saving = false);
     }
   }
 
+  /// Menyusun tampilan formulir pengembalian barang.
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -569,7 +636,7 @@ class _ReturnFormPageState extends State<ReturnFormPage> {
     ),
     body: PageFrame(
       children: [
-        const DemoBanner(),
+        if (!widget.store.isRemote) const DemoBanner(),
         Text(
           widget.store.itemFor(widget.borrowing.itemCode).name,
           style: Theme.of(context).textTheme.titleLarge,
@@ -603,9 +670,11 @@ class _ReturnFormPageState extends State<ReturnFormPage> {
 }
 
 class _QuantityField extends StatelessWidget {
+  /// Membuat kolom jumlah barang.
   const _QuantityField({required this.label, required this.controller});
   final String label;
   final TextEditingController controller;
+  /// Menyusun tampilan kolom jumlah barang.
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 18),
@@ -624,6 +693,7 @@ class _QuantityField extends StatelessWidget {
 }
 
 class InventoryHistoryPage extends StatelessWidget {
+  /// Membuat riwayat perubahan stok.
   const InventoryHistoryPage({
     super.key,
     required this.store,
@@ -631,6 +701,7 @@ class InventoryHistoryPage extends StatelessWidget {
   });
   final InventoryStore store;
   final InventoryItem item;
+  /// Menyusun tampilan riwayat perubahan stok.
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -641,7 +712,7 @@ class InventoryHistoryPage extends StatelessWidget {
       animation: store,
       builder: (context, _) => PageFrame(
         children: [
-          const DemoBanner(),
+          if (!store.isRemote) const DemoBanner(),
           Text(item.name, style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 16),
           if (store.movementsFor(item.code).isEmpty)
@@ -692,8 +763,10 @@ class InventoryHistoryPage extends StatelessWidget {
 }
 
 class ArchivedItemsPage extends StatelessWidget {
+  /// Membuat daftar barang arsip.
   const ArchivedItemsPage({super.key, required this.store});
   final InventoryStore store;
+  /// Menyusun tampilan daftar barang arsip.
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -704,7 +777,7 @@ class ArchivedItemsPage extends StatelessWidget {
       animation: store,
       builder: (context, _) => PageFrame(
         children: [
-          const DemoBanner(),
+          if (!store.isRemote) const DemoBanner(),
           if (store.archivedItems.isEmpty)
             const Text(
               'Belum ada barang diarsipkan.',
@@ -745,8 +818,10 @@ class ArchivedItemsPage extends StatelessWidget {
 }
 
 class _FormLabel extends StatelessWidget {
+  /// Membuat label formulir inventaris.
   const _FormLabel(this.label);
   final String label;
+  /// Menyusun tampilan label formulir inventaris.
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 7),

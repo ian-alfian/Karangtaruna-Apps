@@ -6,28 +6,32 @@ import 'package:shared_preferences/shared_preferences.dart';
 enum AppRole { anggota, bendahara, admin }
 
 extension AppRoleLabel on AppRole {
+  /// Mengambil label peran untuk tampilan.
   String get label => switch (this) {
     AppRole.anggota => 'Anggota',
     AppRole.bendahara => 'Bendahara',
     AppRole.admin => 'Admin',
   };
 
+  /// Mengambil nama contoh sesuai peran.
   String get displayName => switch (this) {
     AppRole.anggota => 'Rizky',
     AppRole.bendahara => 'Sukardi',
     AppRole.admin => 'Admin',
   };
 
+  /// Mengambil email contoh sesuai peran.
   String get email => switch (this) {
-    AppRole.anggota => 'rizky@example.com',
-    AppRole.bendahara => 'sukardi@example.com',
-    AppRole.admin => 'admin@example.com',
+    AppRole.anggota => 'rizky@gmail.com',
+    AppRole.bendahara => 'sukardi@gmail.com',
+    AppRole.admin => 'admin@gmail.com',
   };
 }
 
 enum TransactionType { income, expense }
 
 class CashTransaction {
+  /// Membuat satu transaksi kas.
   const CashTransaction({
     required this.id,
     required this.title,
@@ -50,6 +54,7 @@ class CashTransaction {
   final DateTime date;
   final String note;
 
+  /// Mengubah model menjadi peta data untuk penyimpanan.
   Map<String, Object?> toJson() => {
     'id': id,
     'title': title,
@@ -62,6 +67,7 @@ class CashTransaction {
     'note': note,
   };
 
+  /// Membangun model dari peta data tersimpan.
   factory CashTransaction.fromJson(Map<String, dynamic> json) =>
       CashTransaction(
         id: json['id'] as String,
@@ -77,6 +83,7 @@ class CashTransaction {
 }
 
 class InventoryItem {
+  /// Membuat satu barang inventaris.
   const InventoryItem({
     required this.code,
     required this.name,
@@ -99,8 +106,10 @@ class InventoryItem {
   final int lost;
   final bool archived;
 
+  /// Menghitung jumlah stok yang sedang dipinjam.
   int get borrowed => total - available - damaged - lost;
 
+  /// Membuat salinan model dengan nilai tertentu yang diperbarui.
   InventoryItem copyWith({
     String? name,
     String? category,
@@ -122,6 +131,7 @@ class InventoryItem {
     archived: archived ?? this.archived,
   );
 
+  /// Mengubah model menjadi peta data untuk penyimpanan.
   Map<String, Object?> toJson() => {
     'code': code,
     'name': name,
@@ -134,6 +144,7 @@ class InventoryItem {
     'archived': archived,
   };
 
+  /// Membangun model dari peta data tersimpan.
   factory InventoryItem.fromJson(Map<String, dynamic> json) => InventoryItem(
     code: json['code'] as String,
     name: json['name'] as String,
@@ -148,6 +159,7 @@ class InventoryItem {
 }
 
 class DemoStore extends ChangeNotifier {
+  /// Membuat data keuangan lokal untuk pratinjau.
   DemoStore({SharedPreferencesAsync? preferences})
     : _preferences = preferences ?? SharedPreferencesAsync(),
       _transactions = [
@@ -237,6 +249,22 @@ class DemoStore extends ChangeNotifier {
   final SharedPreferencesAsync _preferences;
   final List<CashTransaction> _transactions;
 
+  /// Menandai apakah store memakai Firestore atau data lokal.
+  bool get isRemote => false;
+
+  /// Mengambil ID pemilik kas saat ini.
+  String get currentHolderId => 'sukardi';
+
+  /// Mengambil nama pemilik kas saat ini.
+  String get currentHolderName => 'Sukardi';
+
+  /// Mengambil daftar bendahara yang dapat ditampilkan.
+  Map<String, String> get holders => const {
+    'sukardi': 'Sukardi',
+    'rina': 'Rina',
+  };
+
+  /// Memuat data tersimpan dan menyiapkan pendengar perubahan.
   Future<void> load() async {
     final raw = await _preferences.getString(_storageKey);
     if (raw == null) return;
@@ -277,9 +305,11 @@ class DemoStore extends ChangeNotifier {
     ),
   ];
 
+  /// Mengambil daftar transaksi yang dapat ditampilkan.
   List<CashTransaction> get transactions =>
       List.unmodifiable(_transactions.reversed);
 
+  /// Menghitung saldo milik bendahara tertentu.
   int balanceFor(String holderId) => _transactions
       .where((transaction) => transaction.holderId == holderId)
       .fold(
@@ -291,9 +321,11 @@ class DemoStore extends ChangeNotifier {
                 : -transaction.amount),
       );
 
+  /// Menjumlahkan kas dari bendahara yang terhubung.
   int get connectedCash =>
       {'sukardi', 'rina'}.fold(0, (sum, id) => sum + balanceFor(id));
 
+  /// Menjumlahkan transaksi menurut jenis dan rentang tanggal.
   int totalFor(TransactionType type, DateTime start, DateTime end) =>
       _transactions
           .where(
@@ -304,6 +336,7 @@ class DemoStore extends ChangeNotifier {
           )
           .fold(0, (sum, transaction) => sum + transaction.amount);
 
+  /// Memvalidasi lalu menyimpan transaksi pemasukan atau pengeluaran.
   Future<void> addTransaction({
     required TransactionType type,
     required String title,
@@ -337,6 +370,7 @@ class DemoStore extends ChangeNotifier {
   }
 }
 
+/// Memformat nominal angka menjadi mata uang rupiah.
 String rupiah(int amount) {
   final digits = amount.abs().toString();
   final chunks = <String>[];
@@ -347,6 +381,7 @@ String rupiah(int amount) {
   return 'Rp ${amount < 0 ? '-' : ''}${chunks.join('.')}';
 }
 
+/// Memformat tanggal singkat untuk tampilan.
 String shortDate(DateTime date) {
   const months = [
     'Jan',

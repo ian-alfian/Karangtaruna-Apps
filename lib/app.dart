@@ -1,15 +1,28 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
 
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'cloud_stores.dart';
 import 'demo_data.dart';
+import 'firebase_admin.dart';
+import 'firebase_login.dart';
 import 'finance.dart';
 import 'inventory.dart';
 import 'inventory_store.dart';
+import 'login_screen.dart';
+import 'login_bloc.dart';
+import 'onboarding_screen.dart';
 import 'profile.dart';
 import 'ui.dart';
+import 'user_management.dart';
 
 class KarangTarunaApp extends StatelessWidget {
+  /// Membuat aplikasi dan tema utamanya.
   const KarangTarunaApp({super.key});
 
+  /// Menyusun tampilan aplikasi dan tema utamanya.
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Karang Taruna Digital',
@@ -29,305 +42,303 @@ class KarangTarunaApp extends StatelessWidget {
 }
 
 class AppRoot extends StatefulWidget {
+  /// Membuat alur awal, sesi login, dan onboarding.
   const AppRoot({super.key});
+
+  /// Membuat state interaktif untuk alur awal, sesi login, dan onboarding.
   @override
   State<AppRoot> createState() => _AppRootState();
 }
 
 class _AppRootState extends State<AppRoot> {
-  AppRole? role;
-  final DemoStore store = DemoStore();
-  final InventoryStore inventoryStore = InventoryStore();
+  FirebaseUserProfile? signedInProfile;
+  AppRole? selectedLoginRole;
+  DemoStore? store;
+  InventoryStore? inventoryStore;
+  late final FirebaseLoginService loginService;
+  late final LoginBloc loginBloc;
   bool ready = false;
-  bool localLoadFailed = false;
+  bool onboardingComplete = false;
+  bool signOutBusy = false;
 
+  /// Menyiapkan state dan pendengar awal saat widget dibuat.
   @override
   void initState() {
     super.initState();
-    Future.wait([store.load(), inventoryStore.load()])
-        .then((_) {
-          if (mounted) setState(() => ready = true);
-        })
-        .catchError((Object error) {
-          if (mounted) {
-            setState(() {
-              ready = true;
-              localLoadFailed = true;
-            });
-          }
-        });
+    loginService = FirebaseLoginService();
+    loginBloc = LoginBloc(loginService, _activateProfile);
+    _initialize();
   }
 
+  /// Memuat preferensi awal dan mencoba memulihkan sesi login.
+  Future<void> _initialize() async {
+    try {
+      onboardingComplete =
+          await SharedPreferencesAsync().getBool('onboarding_complete_v1') ??
+          false;
+    } catch (_) {
+      onboardingComplete = false;
+    }
+    try {
+      final profile = await loginService.restoreSession();
+      if (profile != null) {
+        await _activateProfile(profile);
+        signedInProfile = profile;
+      }
+    } catch (error) {
+      await loginService.signOut();
+      loginBloc.add(LoginErrorReported(firebaseLoginError(error)));
+    }
+    if (mounted) setState(() => ready = true);
+  }
+
+  /// Menyiapkan store keuangan dan inventaris sesuai profil pengguna.
+  Future<void> _activateProfile(FirebaseUserProfile profile) async {
+    final finance = CloudFinanceStore(profile);
+    final inventory = CloudInventoryStore(profile);
+    try {
+      await finance.load();
+      await inventory.load();
+    } catch (_) {
+      finance.dispose();
+      inventory.dispose();
+      rethrow;
+    }
+    store?.dispose();
+    inventoryStore?.dispose();
+    store = finance;
+    inventoryStore = inventory;
+  }
+
+  /// Menyimpan bahwa pengenalan aplikasi sudah selesai.
+  Future<void> _completeOnboarding() async {
+    try {
+      await SharedPreferencesAsync().setBool('onboarding_complete_v1', true);
+    } catch (_) {}
+    if (mounted) setState(() => onboardingComplete = true);
+  }
+
+  /// Menghapus sesi serta state akun yang sedang aktif.
+  Future<void> _signOut() async {
+    if (signOutBusy) return;
+    setState(() => signOutBusy = true);
+    try {
+      await loginService.signOut();
+      if (mounted) {
+        loginBloc.add(const LoginCleared());
+        setState(() {
+          store?.dispose();
+          inventoryStore?.dispose();
+          store = null;
+          inventoryStore = null;
+          signedInProfile = null;
+          selectedLoginRole = null;
+        });
+      }
+    } catch (error) {
+      loginBloc.add(LoginErrorReported(firebaseLoginError(error)));
+    } finally {
+      if (mounted) setState(() => signOutBusy = false);
+    }
+  }
+
+  /// Melepas controller atau langganan saat widget ditutup.
   @override
   void dispose() {
-    store.dispose();
-    inventoryStore.dispose();
+    store?.dispose();
+    inventoryStore?.dispose();
+    unawaited(loginBloc.close());
     super.dispose();
   }
 
+  /// Menyusun tampilan alur awal, sesi login, dan onboarding.
   @override
-  Widget build(BuildContext context) => !ready
-      ? const Scaffold(body: Center(child: CircularProgressIndicator()))
-      : role == null
-      ? PreviewLoginScreen(
-          onEnter: (value) => setState(() => role = value),
-          localLoadFailed: localLoadFailed,
-        )
-      : AppShell(
-          role: role!,
-          store: store,
-          inventoryStore: inventoryStore,
-          onLogout: () => setState(() => role = null),
-        );
-}
-
-class PreviewLoginScreen extends StatefulWidget {
-  const PreviewLoginScreen({
-    super.key,
-    required this.onEnter,
-    this.localLoadFailed = false,
-  });
-  final ValueChanged<AppRole> onEnter;
-  final bool localLoadFailed;
-  @override
-  State<PreviewLoginScreen> createState() => _PreviewLoginScreenState();
-}
-
-class _PreviewLoginScreenState extends State<PreviewLoginScreen> {
-  AppRole selected = AppRole.anggota;
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    body: SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 38),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            minHeight: MediaQuery.sizeOf(context).height - 120,
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 84,
-                height: 84,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: [AppColors.deepNavy, AppColors.blue],
+  Widget build(BuildContext context) => BlocProvider.value(
+    value: loginBloc,
+    child: BlocConsumer<LoginBloc, LoginState>(
+      listener: (context, state) {
+        if (state is LoginSuccess) {
+          setState(() {
+            signedInProfile = state.profile;
+            selectedLoginRole = state.viewRole;
+          });
+        }
+      },
+      builder: (context, state) => !ready
+          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+          : signedInProfile != null
+          ? AppShell(
+              role: signedInProfile!.role,
+              initialViewRole: selectedLoginRole,
+              authenticatedProfile: signedInProfile!,
+              store: store!,
+              inventoryStore: inventoryStore!,
+              onLogout: _signOut,
+            )
+          : !onboardingComplete
+          ? OnboardingScreen(onFinished: _completeOnboarding)
+          : LoginScreen(
+              onSignIn: (email, password, rememberMe, selectedRole) async {
+                loginBloc.add(
+                  LoginSubmitted(
+                    email: email,
+                    password: password,
+                    rememberMe: rememberMe,
+                    selectedRole: selectedRole,
                   ),
-                ),
-                child: const Icon(
-                  Icons.groups_rounded,
-                  color: Colors.white,
-                  size: 43,
-                ),
-              ),
-              const SizedBox(height: 9),
-              const Text(
-                'Karangtaruna Apps',
-                style: TextStyle(
-                  color: AppColors.blue,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 20,
-                ),
-              ),
-              const SizedBox(height: 45),
-              Text(
-                'Masuk ke aplikasi',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Pratinjau desain untuk tiga peran',
-                style: TextStyle(color: AppColors.muted, fontSize: 12),
-              ),
-              const SizedBox(height: 28),
-              SegmentedButton<AppRole>(
-                segments: const [
-                  ButtonSegment(value: AppRole.anggota, label: Text('Anggota')),
-                  ButtonSegment(
-                    value: AppRole.bendahara,
-                    label: Text('Bendahara'),
-                  ),
-                  ButtonSegment(value: AppRole.admin, label: Text('Admin')),
-                ],
-                selected: {selected},
-                showSelectedIcon: false,
-                onSelectionChanged: (roles) =>
-                    setState(() => selected = roles.first),
-                style: ButtonStyle(
-                  visualDensity: VisualDensity.compact,
-                  textStyle: WidgetStateProperty.all(
-                    const TextStyle(fontSize: 11),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 32),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Email',
-                  style: TextStyle(
-                    color: AppColors.navy,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 7),
-              const TextField(
-                enabled: false,
-                decoration: InputDecoration(
-                  hintText: 'Login Firebase belum tersedia',
-                ),
-              ),
-              const SizedBox(height: 18),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Password',
-                  style: TextStyle(
-                    color: AppColors.navy,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 7),
-              const TextField(
-                enabled: false,
-                obscureText: true,
-                decoration: InputDecoration(hintText: '••••••••'),
-              ),
-              const SizedBox(height: 22),
-              const DemoBanner(),
-              if (widget.localLoadFailed)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 12),
-                  child: Text(
-                    'Data lokal gagal dimuat. Periksa penyimpanan perangkat sebelum menambah data.',
-                    style: TextStyle(color: Colors.red),
-                  ),
-                ),
-              FilledButton(
-                onPressed: () => widget.onEnter(selected),
-                child: const Text('Buka Pratinjau'),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Jangan masukkan email atau password asli pada versi pratinjau.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.muted, fontSize: 11),
-              ),
-            ],
-          ),
-        ),
-      ),
+                );
+              },
+              onResetPassword: (email) async {
+                loginBloc.add(PasswordResetRequested(email));
+              },
+              busy: state is LoginLoading,
+              error: state is LoginFailure ? state.message : null,
+              notice: state is PasswordResetSent ? state.message : null,
+            ),
     ),
   );
 }
 
 class AppShell extends StatefulWidget {
+  /// Membuat navigasi utama sesuai peran.
   const AppShell({
     super.key,
     required this.role,
     required this.store,
     required this.inventoryStore,
     required this.onLogout,
+    this.authenticatedProfile,
+    this.initialViewRole,
   });
   final AppRole role;
   final DemoStore store;
   final InventoryStore inventoryStore;
   final VoidCallback onLogout;
+  final FirebaseUserProfile? authenticatedProfile;
+  final AppRole? initialViewRole;
+
+  /// Membuat state interaktif untuk navigasi utama sesuai peran.
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
 class _AppShellState extends State<AppShell> {
   int selectedTab = 0;
-  void openNotifications() => Navigator.of(context)
-      .push(MaterialPageRoute<void>(builder: (_) => const NotificationsPage()));
+  AppRole? selectedViewRole;
 
+  /// Menyiapkan state dan pendengar awal saat widget dibuat.
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: IndexedStack(
-      index: selectedTab,
-      children: [
-        HomeScreen(
-          role: widget.role,
-          store: widget.store,
-          inventoryStore: widget.inventoryStore,
-          onTab: (index) => setState(() => selectedTab = index),
-          onNotifications: openNotifications,
-        ),
-        InventoryScreen(
-          role: widget.role,
-          store: widget.inventoryStore,
-          onNotifications: openNotifications,
-        ),
-        FinanceScreen(
-          role: widget.role,
-          store: widget.store,
-          onNotifications: openNotifications,
-        ),
-        ProfileScreen(
-          role: widget.role,
-          store: widget.store,
-          inventoryStore: widget.inventoryStore,
-          onLogout: widget.onLogout,
-          onNotifications: openNotifications,
-        ),
-      ],
-    ),
-    bottomNavigationBar: SafeArea(
-      top: false,
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(24, 0, 24, 15),
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: AppColors.border),
-          borderRadius: BorderRadius.circular(28),
-        ),
-        child: Row(
-          children: [
-            _NavItem(
-              icon: Icons.home_outlined,
-              activeIcon: Icons.home_rounded,
-              label: 'Beranda',
-              active: selectedTab == 0,
-              onTap: () => setState(() => selectedTab = 0),
-            ),
-            _NavItem(
-              icon: Icons.inventory_2_outlined,
-              activeIcon: Icons.inventory_2_rounded,
-              label: 'Inventaris',
-              active: selectedTab == 1,
-              onTap: () => setState(() => selectedTab = 1),
-            ),
-            _NavItem(
-              icon: Icons.account_balance_wallet_outlined,
-              activeIcon: Icons.account_balance_wallet_rounded,
-              label: 'Keuangan',
-              active: selectedTab == 2,
-              onTap: () => setState(() => selectedTab = 2),
-            ),
-            _NavItem(
-              icon: Icons.person_outline_rounded,
-              activeIcon: Icons.person_rounded,
-              label: 'Profil',
-              active: selectedTab == 3,
-              onTap: () => setState(() => selectedTab = 3),
-            ),
-          ],
-        ),
+  void initState() {
+    super.initState();
+    selectedViewRole = widget.initialViewRole;
+  }
+
+  /// Membuka halaman notifikasi.
+  void openNotifications() => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => NotificationsPage(
+        profile: widget.authenticatedProfile,
+        store: widget.store,
       ),
     ),
   );
+
+  /// Menyusun tampilan navigasi utama sesuai peran.
+  @override
+  Widget build(BuildContext context) {
+    final isAdmin = widget.authenticatedProfile?.role == AppRole.admin;
+    final viewRole = isAdmin ? (selectedViewRole ?? widget.role) : widget.role;
+    return Scaffold(
+      body: IndexedStack(
+        index: selectedTab,
+        children: [
+          HomeScreen(
+            role: viewRole,
+            authenticatedProfile: widget.authenticatedProfile,
+            store: widget.store,
+            inventoryStore: widget.inventoryStore,
+            onTab: (index) => setState(() => selectedTab = index),
+            onNotifications: openNotifications,
+          ),
+          InventoryScreen(
+            role: viewRole,
+            store: widget.inventoryStore,
+            onNotifications: openNotifications,
+          ),
+          FinanceScreen(
+            role: viewRole,
+            store: widget.store,
+            onNotifications: openNotifications,
+            canEditFinance:
+                !widget.store.isRemote ||
+                widget.authenticatedProfile?.role == AppRole.bendahara,
+          ),
+          ProfileScreen(
+            role: viewRole,
+            authenticatedProfile: widget.authenticatedProfile,
+            store: widget.store,
+            inventoryStore: widget.inventoryStore,
+            onLogout: widget.onLogout,
+            onNotifications: openNotifications,
+            onViewRoleChanged: isAdmin
+                ? (role) => setState(() {
+                    selectedViewRole = role;
+                    selectedTab = 0;
+                  })
+                : null,
+          ),
+        ],
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(24, 0, 24, 15),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: AppColors.border),
+            borderRadius: BorderRadius.circular(28),
+          ),
+          child: Row(
+            children: [
+              _NavItem(
+                icon: Icons.home_outlined,
+                activeIcon: Icons.home_rounded,
+                label: 'Beranda',
+                active: selectedTab == 0,
+                onTap: () => setState(() => selectedTab = 0),
+              ),
+              _NavItem(
+                icon: Icons.inventory_2_outlined,
+                activeIcon: Icons.inventory_2_rounded,
+                label: 'Inventaris',
+                active: selectedTab == 1,
+                onTap: () => setState(() => selectedTab = 1),
+              ),
+              _NavItem(
+                icon: Icons.account_balance_wallet_outlined,
+                activeIcon: Icons.account_balance_wallet_rounded,
+                label: 'Keuangan',
+                active: selectedTab == 2,
+                onTap: () => setState(() => selectedTab = 2),
+              ),
+              _NavItem(
+                icon: Icons.person_outline_rounded,
+                activeIcon: Icons.person_rounded,
+                label: 'Profil',
+                active: selectedTab == 3,
+                onTap: () => setState(() => selectedTab = 3),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _NavItem extends StatelessWidget {
+  /// Membuat satu tombol navigasi bawah.
   const _NavItem({
     required this.icon,
     required this.activeIcon,
@@ -341,6 +352,7 @@ class _NavItem extends StatelessWidget {
   final bool active;
   final VoidCallback onTap;
 
+  /// Menyusun tampilan satu tombol navigasi bawah.
   @override
   Widget build(BuildContext context) => Expanded(
     child: InkWell(
@@ -373,29 +385,64 @@ class _NavItem extends StatelessWidget {
 }
 
 class HomeScreen extends StatefulWidget {
+  /// Membuat beranda sesuai peran.
   const HomeScreen({
     super.key,
     required this.role,
+    this.authenticatedProfile,
     required this.store,
     required this.inventoryStore,
     required this.onTab,
     required this.onNotifications,
   });
   final AppRole role;
+  final FirebaseUserProfile? authenticatedProfile;
   final DemoStore store;
   final InventoryStore inventoryStore;
   final ValueChanged<int> onTab;
   final VoidCallback onNotifications;
+
+  /// Membuat state interaktif untuk beranda sesuai peran.
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
   bool obscured = false;
+  Stream<int>? managedUserCount;
 
+  /// Menyiapkan state dan pendengar awal saat widget dibuat.
+  @override
+  void initState() {
+    super.initState();
+    _setUserCountStream();
+  }
+
+  /// Memperbarui stream ketika data widget beranda berubah.
+  @override
+  void didUpdateWidget(covariant HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.authenticatedProfile?.uid !=
+        widget.authenticatedProfile?.uid) {
+      _setUserCountStream();
+    }
+  }
+
+  /// Menyiapkan stream jumlah pengguna untuk dashboard Admin.
+  void _setUserCountStream() {
+    final profile = widget.authenticatedProfile;
+    managedUserCount = widget.store.isRemote && profile?.role == AppRole.admin
+        ? FirebaseAdminService(profile: profile!).managedUserCount()
+        : null;
+  }
+
+  /// Menyusun tampilan beranda sesuai peran.
   @override
   Widget build(BuildContext context) {
-    final isTreasurer = widget.role == AppRole.bendahara;
+    final isTreasurer =
+        widget.role == AppRole.bendahara &&
+        (!widget.store.isRemote ||
+            widget.authenticatedProfile?.role == AppRole.bendahara);
     final isAdmin = widget.role == AppRole.admin;
     final now = DateTime.now();
     final monthStart = DateTime(now.year, now.month, 1);
@@ -409,23 +456,33 @@ class _HomeScreenState extends State<HomeScreen> {
             title: 'Halo, ${widget.role.displayName}',
             onNotifications: widget.onNotifications,
           ),
-          const DemoBanner(),
+          if (!widget.store.isRemote) const DemoBanner(),
           MoneyCard(
-            label: isTreasurer ? 'Saldo Saya' : 'Total Kas Terkoneksi',
+            label: isTreasurer
+                ? 'Saldo Saya'
+                : widget.store.isRemote
+                ? 'Total Kas Terkoneksi'
+                : 'Total Kas Terkoneksi',
             subtitle: isTreasurer
                 ? 'Kas yang saya pegang'
+                : widget.store.isRemote
+                ? 'Kas Bendahara terhubung'
                 : 'Kas bendahara pada contoh ini',
             amount: isTreasurer
-                ? widget.store.balanceFor('sukardi')
+                ? widget.store.balanceFor(widget.store.currentHolderId)
                 : widget.store.connectedCash,
-            footerLabel: isTreasurer ? 'Total Kas Terkoneksi' : '2 Bendahara',
+            footerLabel: isTreasurer
+                ? 'Total Kas Terkoneksi'
+                : '${widget.store.holders.length} Bendahara',
             footerValue: isTreasurer
                 ? rupiah(widget.store.connectedCash)
                 : null,
             obscured: obscured,
             onToggle: () => setState(() => obscured = !obscured),
           ),
-          if (isTreasurer) ...[
+          if (isTreasurer &&
+              (!widget.store.isRemote ||
+                  widget.authenticatedProfile?.role == AppRole.bendahara)) ...[
             const SizedBox(height: 22),
             Row(
               children: [
@@ -475,7 +532,17 @@ class _HomeScreenState extends State<HomeScreen> {
                   label: 'Jenis barang',
                 ),
                 const SizedBox(width: 8),
-                const StatTile(value: '4', label: 'Pengguna'),
+                StreamBuilder<int>(
+                  stream: managedUserCount,
+                  builder: (context, snapshot) => StatTile(
+                    value: widget.store.isRemote
+                        ? snapshot.hasError
+                              ? '—'
+                              : '${snapshot.data ?? 0}'
+                        : '0',
+                    label: 'Pengguna',
+                  ),
+                ),
                 const SizedBox(width: 8),
                 StatTile(
                   value:
@@ -498,7 +565,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   label: 'Pengguna',
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      builder: (_) => const UserManagementPage(),
+                      builder: (_) => UserManagementPage(
+                        adminProfile: widget.authenticatedProfile,
+                      ),
                     ),
                   ),
                 ),

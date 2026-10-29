@@ -14,6 +14,7 @@ abstract final class AppColors {
   static const amber = Color(0xFFB86A14);
 }
 
+/// Menyusun warna, tipografi, dan tema Material aplikasi.
 ThemeData appTheme() {
   final colors = ColorScheme.fromSeed(
     seedColor: AppColors.blue,
@@ -78,6 +79,7 @@ ThemeData appTheme() {
 }
 
 class PageFrame extends StatelessWidget {
+  /// Membuat kerangka halaman yang dapat digulir.
   const PageFrame({
     super.key,
     required this.children,
@@ -87,6 +89,7 @@ class PageFrame extends StatelessWidget {
   final List<Widget> children;
   final EdgeInsets padding;
 
+  /// Menyusun tampilan kerangka halaman yang dapat digulir.
   @override
   Widget build(BuildContext context) => SafeArea(
     child: ListView(padding: padding, children: children),
@@ -94,6 +97,7 @@ class PageFrame extends StatelessWidget {
 }
 
 class RoleHeader extends StatelessWidget {
+  /// Membuat header peran dan akun.
   const RoleHeader({
     super.key,
     required this.role,
@@ -105,6 +109,7 @@ class RoleHeader extends StatelessWidget {
   final String title;
   final VoidCallback? onNotifications;
 
+  /// Menyusun tampilan header peran dan akun.
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 22),
@@ -160,8 +165,10 @@ class RoleHeader extends StatelessWidget {
 }
 
 class DemoBanner extends StatelessWidget {
+  /// Membuat penanda mode data lokal.
   const DemoBanner({super.key});
 
+  /// Menyusun tampilan penanda mode data lokal.
   @override
   Widget build(BuildContext context) => Container(
     margin: const EdgeInsets.only(bottom: 18),
@@ -190,6 +197,7 @@ class DemoBanner extends StatelessWidget {
 }
 
 class MoneyCard extends StatelessWidget {
+  /// Membuat kartu ringkasan saldo.
   const MoneyCard({
     super.key,
     required this.label,
@@ -209,6 +217,7 @@ class MoneyCard extends StatelessWidget {
   final bool obscured;
   final VoidCallback? onToggle;
 
+  /// Menyusun tampilan kartu ringkasan saldo.
   @override
   Widget build(BuildContext context) => Container(
     width: double.infinity,
@@ -303,6 +312,7 @@ class MoneyCard extends StatelessWidget {
 }
 
 class SectionHeading extends StatelessWidget {
+  /// Membuat judul bagian halaman.
   const SectionHeading({
     super.key,
     required this.title,
@@ -313,6 +323,7 @@ class SectionHeading extends StatelessWidget {
   final String? action;
   final VoidCallback? onAction;
 
+  /// Menyusun tampilan judul bagian halaman.
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 12),
@@ -329,6 +340,7 @@ class SectionHeading extends StatelessWidget {
 }
 
 class StatTile extends StatelessWidget {
+  /// Membuat kartu angka statistik.
   const StatTile({
     super.key,
     required this.value,
@@ -339,6 +351,7 @@ class StatTile extends StatelessWidget {
   final String label;
   final bool highlight;
 
+  /// Menyusun tampilan kartu angka statistik.
   @override
   Widget build(BuildContext context) => Expanded(
     child: Container(
@@ -371,6 +384,7 @@ class StatTile extends StatelessWidget {
 }
 
 class QuickAction extends StatelessWidget {
+  /// Membuat tombol pintas fitur.
   const QuickAction({
     super.key,
     required this.icon,
@@ -381,6 +395,7 @@ class QuickAction extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
 
+  /// Menyusun tampilan tombol pintas fitur.
   @override
   Widget build(BuildContext context) => Expanded(
     child: InkWell(
@@ -414,10 +429,12 @@ class QuickAction extends StatelessWidget {
 }
 
 class TransactionTile extends StatelessWidget {
+  /// Membuat satu baris transaksi.
   const TransactionTile({super.key, required this.transaction, this.onTap});
   final CashTransaction transaction;
   final VoidCallback? onTap;
 
+  /// Menyusun tampilan satu baris transaksi.
   @override
   Widget build(BuildContext context) {
     final income = transaction.type == TransactionType.income;
@@ -482,6 +499,7 @@ class TransactionTile extends StatelessWidget {
 }
 
 class TransactionPanel extends StatelessWidget {
+  /// Membuat daftar transaksi.
   const TransactionPanel({
     super.key,
     required this.transactions,
@@ -490,6 +508,7 @@ class TransactionPanel extends StatelessWidget {
   final List<CashTransaction> transactions;
   final ValueChanged<CashTransaction>? onSelect;
 
+  /// Menyusun tampilan daftar transaksi.
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -523,6 +542,7 @@ class TransactionPanel extends StatelessWidget {
 }
 
 class CashFlowCard extends StatelessWidget {
+  /// Membuat grafik arus kas.
   const CashFlowCard({
     super.key,
     required this.income,
@@ -535,10 +555,12 @@ class CashFlowCard extends StatelessWidget {
   final DateTime monthStart;
   final List<CashTransaction> transactions;
 
+  /// Menyusun tampilan grafik arus kas.
   @override
   Widget build(BuildContext context) {
     final daysInMonth = DateTime(monthStart.year, monthStart.month + 1, 0).day;
     final maximum = income > expense ? income : expense;
+    /// Menghitung titik grafik bulanan untuk pemasukan atau pengeluaran.
     List<Offset> series(TransactionType type) => List.generate(5, (index) {
       final x = index / 4.0;
       final day = (1 + x * (daysInMonth - 1)).round();
@@ -661,6 +683,7 @@ class CashFlowCard extends StatelessWidget {
 }
 
 class _FlowMetric extends StatelessWidget {
+  /// Membuat angka ringkasan arus kas.
   const _FlowMetric({
     required this.label,
     required this.amount,
@@ -670,6 +693,7 @@ class _FlowMetric extends StatelessWidget {
   final int amount;
   final Color color;
 
+  /// Menyusun tampilan angka ringkasan arus kas.
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
@@ -689,6 +713,7 @@ class _FlowMetric extends StatelessWidget {
 }
 
 class _FlowChartPainter extends CustomPainter {
+  /// Membuat gambar grafik arus kas.
   const _FlowChartPainter({
     required this.incomePoints,
     required this.expensePoints,
@@ -696,6 +721,7 @@ class _FlowChartPainter extends CustomPainter {
   final List<Offset> incomePoints;
   final List<Offset> expensePoints;
 
+  /// Menggambar grafik pada kanvas.
   @override
   void paint(Canvas canvas, Size size) {
     final grid = Paint()
@@ -705,6 +731,7 @@ class _FlowChartPainter extends CustomPainter {
       final y = size.height * i / 3;
       canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
     }
+    /// Menghubungkan titik grafik dengan garis penuh atau putus-putus.
     void line(List<Offset> points, Color color, bool dashed) {
       final paint = Paint()
         ..color = color
@@ -730,16 +757,7 @@ class _FlowChartPainter extends CustomPainter {
     line(expensePoints, AppColors.navy, true);
   }
 
+  /// Menentukan apakah grafik perlu digambar ulang.
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-}
-
-void showPreviewOnly(BuildContext context) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      content: Text(
-        'Fitur ini akan aktif setelah Firebase dan aturan akses terhubung.',
-      ),
-    ),
-  );
 }

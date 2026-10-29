@@ -1,29 +1,41 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'action_dialogs.dart';
 import 'demo_data.dart';
+import 'cloud_connections.dart';
+import 'firebase_login.dart';
 import 'inventory_store.dart';
 import 'ui.dart';
+import 'user_management.dart';
+import 'account_pages.dart';
 
 class ProfileScreen extends StatelessWidget {
+  /// Membuat halaman profil dan menu akun.
   const ProfileScreen({
     super.key,
     required this.role,
+    this.authenticatedProfile,
     required this.store,
     required this.inventoryStore,
     required this.onLogout,
     required this.onNotifications,
+    this.onViewRoleChanged,
   });
   final AppRole role;
+  final FirebaseUserProfile? authenticatedProfile;
   final DemoStore store;
   final InventoryStore inventoryStore;
   final VoidCallback onLogout;
   final VoidCallback onNotifications;
+  final ValueChanged<AppRole>? onViewRoleChanged;
 
+  /// Menyusun tampilan halaman profil dan menu akun.
   @override
   Widget build(BuildContext context) => PageFrame(
     children: [
       RoleHeader(role: role, title: 'Profil', onNotifications: onNotifications),
-      const DemoBanner(),
+      if (!store.isRemote) const DemoBanner(),
       Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
@@ -36,7 +48,9 @@ class ProfileScreen extends StatelessWidget {
               radius: 28,
               backgroundColor: AppColors.paleBlue,
               child: Text(
-                role.displayName.substring(0, 2).toUpperCase(),
+                (authenticatedProfile?.name ?? role.displayName)
+                    .substring(0, 2)
+                    .toUpperCase(),
                 style: const TextStyle(
                   color: AppColors.blue,
                   fontWeight: FontWeight.w800,
@@ -49,7 +63,9 @@ class ProfileScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    role.displayName,
+                    authenticatedProfile?.name ?? role.displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: AppColors.navy,
                       fontWeight: FontWeight.w800,
@@ -58,7 +74,9 @@ class ProfileScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    role.email,
+                    authenticatedProfile?.email ?? role.email,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: AppColors.muted,
                       fontSize: 11,
@@ -74,7 +92,7 @@ class ProfileScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
-                role.label,
+                authenticatedProfile?.role.label ?? role.label,
                 style: const TextStyle(
                   color: AppColors.blue,
                   fontSize: 10,
@@ -99,25 +117,91 @@ class ProfileScreen extends StatelessWidget {
               _ProfileMenu(
                 icon: Icons.person_outline_rounded,
                 title: 'Data Profil',
-                onTap: () => showPreviewOnly(context),
+                onTap: () {
+                  final profile = authenticatedProfile;
+                  if (profile == null) return;
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ProfileDetailsPage(profile: profile),
+                    ),
+                  );
+                },
               ),
-              if (role == AppRole.bendahara)
+              if (role == AppRole.bendahara &&
+                  (!store.isRemote ||
+                      authenticatedProfile?.role == AppRole.bendahara))
                 _ProfileMenu(
                   icon: Icons.people_outline_rounded,
                   title: 'Koneksi Bendahara',
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      builder: (_) => ConnectionPage(store: store),
+                      builder: (_) => store.isRemote
+                          ? CloudConnectionPage(store: store)
+                          : ConnectionPage(store: store),
                     ),
                   ),
                 ),
-              if (role == AppRole.admin) ...[
+              if (role == AppRole.admin ||
+                  authenticatedProfile?.role == AppRole.admin) ...[
+                if (authenticatedProfile?.role == AppRole.admin &&
+                    onViewRoleChanged != null)
+                  _ProfileMenu(
+                    icon: Icons.swap_horiz_rounded,
+                    title: 'Ganti Tampilan Peran',
+                    onTap: () async {
+                      final selected = await showModalBottomSheet<AppRole>(
+                        context: context,
+                        backgroundColor: Colors.white,
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.vertical(
+                            top: Radius.circular(28),
+                          ),
+                        ),
+                        builder: (sheetContext) => SafeArea(
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text(
+                                  'Pilih tampilan peran',
+                                  style: TextStyle(
+                                    color: AppColors.navy,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                for (final option in AppRole.values)
+                                  ListTile(
+                                    title: Text(option.label),
+                                    trailing: option == role
+                                        ? const Icon(
+                                            Icons.check_rounded,
+                                            color: AppColors.blue,
+                                          )
+                                        : null,
+                                    onTap: () =>
+                                        Navigator.pop(sheetContext, option),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                      if (selected != null && context.mounted) {
+                        onViewRoleChanged!(selected);
+                      }
+                    },
+                  ),
                 _ProfileMenu(
                   icon: Icons.manage_accounts_outlined,
                   title: 'Kelola Pengguna',
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      builder: (_) => const UserManagementPage(),
+                      builder: (_) => UserManagementPage(
+                        adminProfile: authenticatedProfile,
+                      ),
                     ),
                   ),
                 ),
@@ -137,7 +221,15 @@ class ProfileScreen extends StatelessWidget {
               _ProfileMenu(
                 icon: Icons.lock_outline_rounded,
                 title: 'Ubah Password',
-                onTap: () => showPreviewOnly(context),
+                onTap: () {
+                  final profile = authenticatedProfile;
+                  if (profile == null) return;
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ChangePasswordPage(email: profile.email),
+                    ),
+                  );
+                },
               ),
               _ProfileMenu(
                 icon: Icons.info_outline_rounded,
@@ -145,7 +237,9 @@ class ProfileScreen extends StatelessWidget {
                 onTap: () => showAboutDialog(
                   context: context,
                   applicationName: 'Karang Taruna Digital',
-                  applicationVersion: 'Pratinjau UI',
+                  applicationVersion: store.isRemote
+                      ? 'Firebase'
+                      : 'Pratinjau UI',
                   children: [
                     const Text(
                       'Aplikasi inventaris dan keuangan Karang Taruna.',
@@ -155,29 +249,22 @@ class ProfileScreen extends StatelessWidget {
               ),
               _ProfileMenu(
                 icon: Icons.logout_rounded,
-                title: 'Keluar dari Pratinjau',
+                title: store.isRemote
+                    ? 'Keluar dari Akun'
+                    : 'Keluar dari Pratinjau',
                 isLast: true,
                 onTap: () async {
-                  final confirmed = await showDialog<bool>(
-                    context: context,
-                    builder: (dialogContext) => AlertDialog(
-                      title: const Text('Keluar dari pratinjau?'),
-                      content: const Text(
-                        'Perubahan data demo akan hilang saat aplikasi ditutup.',
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(dialogContext, false),
-                          child: const Text('Batal'),
-                        ),
-                        FilledButton(
-                          onPressed: () => Navigator.pop(dialogContext, true),
-                          child: const Text('Keluar'),
-                        ),
-                      ],
-                    ),
+                  final confirmed = await confirmAction(
+                    context,
+                    title: store.isRemote
+                        ? 'Keluar dari akun?'
+                        : 'Keluar dari pratinjau?',
+                    message: store.isRemote
+                        ? 'Anda perlu masuk kembali untuk melihat data organisasi.'
+                        : 'Data demo tersimpan di perangkat ini.',
+                    confirmLabel: 'Keluar',
                   );
-                  if (confirmed == true) onLogout();
+                  if (confirmed) onLogout();
                 },
               ),
             ],
@@ -189,6 +276,7 @@ class ProfileScreen extends StatelessWidget {
 }
 
 class _ProfileMenu extends StatelessWidget {
+  /// Membuat satu menu profil.
   const _ProfileMenu({
     required this.icon,
     required this.title,
@@ -200,6 +288,7 @@ class _ProfileMenu extends StatelessWidget {
   final VoidCallback onTap;
   final bool isLast;
 
+  /// Menyusun tampilan satu menu profil.
   @override
   Widget build(BuildContext context) => Column(
     children: [
@@ -222,9 +311,11 @@ class _ProfileMenu extends StatelessWidget {
 }
 
 class ConnectionPage extends StatefulWidget {
+  /// Membuat pratinjau koneksi bendahara.
   const ConnectionPage({super.key, required this.store});
   final DemoStore store;
 
+  /// Membuat state interaktif untuk pratinjau koneksi bendahara.
   @override
   State<ConnectionPage> createState() => _ConnectionPageState();
 }
@@ -232,6 +323,7 @@ class ConnectionPage extends StatefulWidget {
 class _ConnectionPageState extends State<ConnectionPage> {
   int tab = 0;
 
+  /// Menyusun tampilan pratinjau koneksi bendahara.
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -380,10 +472,12 @@ class _ConnectionPageState extends State<ConnectionPage> {
 }
 
 class _ConnectionRow extends StatelessWidget {
+  /// Membuat satu baris saldo bendahara.
   const _ConnectionRow({required this.name, required this.amount});
   final String name;
   final int amount;
 
+  /// Menyusun tampilan satu baris saldo bendahara.
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 8),
@@ -426,108 +520,8 @@ class _ConnectionRow extends StatelessWidget {
   );
 }
 
-class UserManagementPage extends StatelessWidget {
-  const UserManagementPage({super.key});
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Kelola Pengguna'),
-      backgroundColor: AppColors.background,
-    ),
-    body: PageFrame(
-      children: [
-        const DemoBanner(),
-        FilledButton.icon(
-          onPressed: () => showPreviewOnly(context),
-          icon: const Icon(Icons.add),
-          label: const Text('Tambah Pengguna'),
-        ),
-        const SizedBox(height: 18),
-        TextField(
-          decoration: const InputDecoration(
-            prefixIcon: Icon(Icons.search),
-            hintText: 'Cari nama atau email',
-          ),
-          onChanged: (_) {},
-        ),
-        const SizedBox(height: 20),
-        const SectionHeading(title: 'Daftar Pengguna'),
-        for (final user in const [
-          ('Rizky Pratama', 'rizky@example.com', 'Anggota'),
-          ('Dina Putri', 'dina@example.com', 'Admin'),
-          ('Ayu Setyaningrum', 'ayu@example.com', 'Bendahara'),
-          ('Sukardi', 'sukardi@example.com', 'Bendahara'),
-        ]) ...[
-          Container(
-            padding: const EdgeInsets.all(15),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: AppColors.paleBlue,
-                  child: Text(
-                    user.$1.substring(0, 2).toUpperCase(),
-                    style: const TextStyle(
-                      color: AppColors.blue,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 11),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        user.$1,
-                        style: const TextStyle(
-                          color: AppColors.navy,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      Text(
-                        user.$2,
-                        style: const TextStyle(
-                          color: AppColors.muted,
-                          fontSize: 10,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        user.$3,
-                        style: const TextStyle(
-                          color: AppColors.blue,
-                          fontSize: 10,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Text(
-                  'Aktif',
-                  style: TextStyle(
-                    color: AppColors.green,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-        ],
-      ],
-    ),
-  );
-}
-
 class ReportsPage extends StatelessWidget {
+  /// Membuat halaman laporan.
   const ReportsPage({
     super.key,
     required this.store,
@@ -536,6 +530,7 @@ class ReportsPage extends StatelessWidget {
   final DemoStore store;
   final InventoryStore inventoryStore;
 
+  /// Menyusun tampilan halaman laporan.
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -546,23 +541,25 @@ class ReportsPage extends StatelessWidget {
       animation: Listenable.merge([store, inventoryStore]),
       builder: (context, _) => PageFrame(
         children: [
-          const DemoBanner(),
+          if (!store.isRemote) const DemoBanner(),
           MoneyCard(
             label: 'Total Kas Terkoneksi',
             amount: store.connectedCash,
-            footerLabel: 'Data contoh',
+            footerLabel: store.isRemote ? 'Data organisasi' : 'Data contoh',
           ),
           const SizedBox(height: 22),
           const SectionHeading(title: 'Ringkasan'),
           _ReportCard(
             icon: Icons.account_balance_wallet_outlined,
             title: 'Keuangan',
-            detail: '${store.transactions.length} transaksi contoh',
+            detail:
+                '${store.transactions.length} transaksi${store.isRemote ? '' : ' contoh'}',
           ),
           _ReportCard(
             icon: Icons.inventory_2_outlined,
             title: 'Inventaris',
-            detail: '${inventoryStore.items.length} jenis barang contoh',
+            detail:
+                '${inventoryStore.items.length} jenis barang${store.isRemote ? '' : ' contoh'}',
           ),
           _ReportCard(
             icon: Icons.assignment_outlined,
@@ -572,7 +569,7 @@ class ReportsPage extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           const Text(
-            'Ekspor laporan akan tersedia setelah layanan data nyata terhubung.',
+            'Ekspor laporan belum tersedia.',
             style: TextStyle(color: AppColors.muted, fontSize: 11),
           ),
         ],
@@ -582,6 +579,7 @@ class ReportsPage extends StatelessWidget {
 }
 
 class _ReportCard extends StatelessWidget {
+  /// Membuat kartu ringkasan laporan.
   const _ReportCard({
     required this.icon,
     required this.title,
@@ -591,6 +589,7 @@ class _ReportCard extends StatelessWidget {
   final String title;
   final String detail;
 
+  /// Menyusun tampilan kartu ringkasan laporan.
   @override
   Widget build(BuildContext context) => Container(
     margin: const EdgeInsets.only(bottom: 10),
@@ -627,21 +626,93 @@ class _ReportCard extends StatelessWidget {
 }
 
 class NotificationsPage extends StatelessWidget {
-  const NotificationsPage({super.key});
+  /// Membuat halaman notifikasi.
+  const NotificationsPage({super.key, this.profile, this.store});
+  final FirebaseUserProfile? profile;
+  final DemoStore? store;
 
+  /// Menyusun tampilan halaman notifikasi.
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Notifikasi'),
-      backgroundColor: AppColors.background,
-    ),
-    body: const PageFrame(children: [DemoBanner(), _NotificationEmpty()]),
-  );
+  Widget build(BuildContext context) {
+    final user = profile;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Notifikasi'),
+        backgroundColor: AppColors.background,
+      ),
+      body: user == null
+          ? const PageFrame(children: [_NotificationEmpty()])
+          : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('notifications')
+                  .where('recipientId', isEqualTo: user.uid)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return const PageFrame(
+                    children: [
+                      Text('Notifikasi belum dapat dimuat. Coba lagi nanti.'),
+                    ],
+                  );
+                }
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final docs = snapshot.data!.docs.toList()
+                  ..sort((a, b) {
+                    final aDate = a.data()['createdAt'] as Timestamp?;
+                    final bDate = b.data()['createdAt'] as Timestamp?;
+                    return (bDate?.millisecondsSinceEpoch ?? 0).compareTo(
+                      aDate?.millisecondsSinceEpoch ?? 0,
+                    );
+                  });
+                return PageFrame(
+                  children: [
+                    if (docs.isEmpty) const _NotificationEmpty(),
+                    for (final doc in docs)
+                      Card(
+                        child: ListTile(
+                          leading: Icon(
+                            doc.data()['read'] == true
+                                ? Icons.notifications_none
+                                : Icons.notifications_active_outlined,
+                            color: AppColors.blue,
+                          ),
+                          title: Text(
+                            doc.data()['title'] as String? ?? 'Notifikasi',
+                          ),
+                          subtitle: Text(doc.data()['body'] as String? ?? ''),
+                          onTap: () async {
+                            if (doc.data()['read'] != true) {
+                              await doc.reference.update({'read': true});
+                            }
+                            if (context.mounted &&
+                                store != null &&
+                                doc.data()['category'] == 'connection' &&
+                                user.role == AppRole.bendahara) {
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) =>
+                                      CloudConnectionPage(store: store!),
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+    );
+  }
 }
 
 class _NotificationEmpty extends StatelessWidget {
+  /// Membuat pesan saat notifikasi kosong.
   const _NotificationEmpty();
 
+  /// Menyusun tampilan pesan saat notifikasi kosong.
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(28),

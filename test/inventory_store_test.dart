@@ -48,27 +48,56 @@ void main() {
     expect(store.archivedItems.any((item) => item.code == 'INV-004'), isTrue);
   });
 
-  test('stok dan pinjaman lokal dimuat kembali, perubahan invalid ditolak', () async {
-    final store = InventoryStore();
-    await expectLater(store.adjustStock('INV-001', -2, 'Audit'), throwsStateError);
-    await expectLater(
-      store.returnItem('b1', good: 0, damaged: 1, lost: 0, note: ''),
-      throwsArgumentError,
-    );
-    await store.adjustStock('INV-001', 2, 'Pembelian');
-    await store.borrowItem(
-      code: 'INV-001',
-      borrower: 'Dina',
-      quantity: 1,
-      dueAt: DateTime.now().add(const Duration(days: 2)),
-    );
+  test(
+    'stok dan pinjaman lokal dimuat kembali, perubahan invalid ditolak',
+    () async {
+      final store = InventoryStore();
+      await expectLater(
+        store.adjustStock('INV-001', -2, 'Audit'),
+        throwsStateError,
+      );
+      await expectLater(
+        store.returnItem('b1', good: 0, damaged: 1, lost: 0, note: ''),
+        throwsArgumentError,
+      );
+      await store.adjustStock('INV-001', 2, 'Pembelian');
+      await store.borrowItem(
+        code: 'INV-001',
+        borrower: 'Dina',
+        quantity: 1,
+        dueAt: DateTime.now().add(const Duration(days: 2)),
+      );
 
+      final restored = InventoryStore();
+      await restored.load();
+      expect(restored.itemFor('INV-001').total, 4);
+      expect(restored.itemFor('INV-001').available, 2);
+      expect(restored.itemFor('INV-001').borrowed, 2);
+      expect(restored.borrowings.length, 4);
+      expect(restored.movementsFor('INV-001').length, 2);
+    },
+  );
+
+  test('foto inventaris tersimpan dan dapat diganti', () async {
+    final store = InventoryStore();
+    await store.addItem(
+      code: 'INV-004',
+      name: 'Meja lipat',
+      category: 'Peralatan',
+      location: 'Gudang',
+      quantity: 1,
+      photoBase64: 'foto-pertama',
+    );
     final restored = InventoryStore();
     await restored.load();
-    expect(restored.itemFor('INV-001').total, 4);
-    expect(restored.itemFor('INV-001').available, 2);
-    expect(restored.itemFor('INV-001').borrowed, 2);
-    expect(restored.borrowings.length, 4);
-    expect(restored.movementsFor('INV-001').length, 2);
+    expect(await restored.photoFor('INV-004'), 'foto-pertama');
+    await restored.editItem(
+      'INV-004',
+      name: 'Meja lipat',
+      category: 'Peralatan',
+      location: 'Gudang',
+      photoBase64: 'foto-baru',
+    );
+    expect(await restored.photoFor('INV-004'), 'foto-baru');
   });
 }
