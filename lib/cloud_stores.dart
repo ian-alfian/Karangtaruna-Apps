@@ -245,11 +245,22 @@ class CloudInventoryStore extends InventoryStore {
   /// Mengambil daftar barang aktif.
   @override
   List<InventoryItem> get items =>
-      List.unmodifiable(_remoteItems.where((item) => !item.archived));
-  /// Mengambil daftar barang yang diarsipkan.
+      List.unmodifiable(
+        _remoteItems.where(
+          (item) =>
+              !item.archived &&
+              (profile.role == AppRole.admin || !item.hidden),
+        ),
+      );
+  /// Mengambil data legacy yang masih bertanda arsip.
   @override
   List<InventoryItem> get archivedItems =>
       List.unmodifiable(_remoteItems.where((item) => item.archived));
+  /// Mengambil barang yang di-hide untuk dikelola Admin.
+  @override
+  List<InventoryItem> get hiddenItems => List.unmodifiable(
+    _remoteItems.where((item) => !item.archived && item.hidden),
+  );
   /// Mengambil daftar peminjaman.
   @override
   List<Borrowing> get borrowings =>
@@ -277,9 +288,13 @@ class CloudInventoryStore extends InventoryStore {
   /// Memuat data tersimpan dan menyiapkan pendengar perubahan.
   @override
   Future<void> load() async {
-    final itemsQuery = db
-        .collection('inventoryItems')
-        .where('organizationId', isEqualTo: profile.organizationId);
+    final itemsCollection = db.collection('inventoryItems').where(
+      'organizationId',
+      isEqualTo: profile.organizationId,
+    );
+    final itemsQuery = profile.role == AppRole.admin
+        ? itemsCollection
+        : itemsCollection.where('hidden', isEqualTo: false);
     final borrowingQuery = db
         .collection('borrowings')
         .where('organizationId', isEqualTo: profile.organizationId);
@@ -318,6 +333,7 @@ class CloudInventoryStore extends InventoryStore {
             damaged: _number(data['damaged']),
             lost: _number(data['lost']),
             archived: data['archived'] == true,
+            hidden: data['hidden'] == true,
           );
         }),
       );
@@ -452,6 +468,7 @@ class CloudInventoryStore extends InventoryStore {
         'damaged': 0,
         'lost': 0,
         'archived': false,
+        'hidden': false,
         'createdBy': profile.uid,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -500,7 +517,7 @@ class CloudInventoryStore extends InventoryStore {
       final snapshot = await transaction.get(ref);
       final item = snapshot.data();
       if (item == null || item['archived'] == true) {
-        throw StateError('Barang tidak ditemukan atau sudah diarsipkan.');
+        throw StateError('Barang tidak ditemukan atau sudah dihapus.');
       }
       transaction.update(ref, {
         'name': name.trim(),
@@ -544,7 +561,7 @@ class CloudInventoryStore extends InventoryStore {
         await db.runTransaction((transaction) async {
           final item = (await transaction.get(ref)).data();
           if (item == null || item['archived'] == true) {
-            throw StateError('Barang tidak ditemukan atau sudah diarsipkan.');
+            throw StateError('Barang tidak ditemukan atau sudah dihapus.');
           }
           final before = _number(item['available']);
           if (before + delta < 0) {
@@ -568,26 +585,18 @@ class CloudInventoryStore extends InventoryStore {
         });
       });
 
-  /// Mengarsipkan barang setelah memastikan tidak ada peminjaman aktif.
+  /// Menyembunyikan barang dari Bendahara dan Anggota tanpa menghapus data.
   @override
-  Future<void> archiveItem(String code) => _perform(() async {
+  Future<void> hideItem(String code) => _perform(() async {
     final ref = _itemRef(code);
     final movementRef = db.collection('inventoryMovements').doc();
     await db.runTransaction((transaction) async {
       final item = (await transaction.get(ref)).data();
-      if (item == null || item['archived'] == true) {
-        throw StateError('Barang tidak ditemukan atau sudah diarsipkan.');
-      }
-      final borrowed =
-          _number(item['total']) -
-          _number(item['available']) -
-          _number(item['damaged']) -
-          _number(item['lost']);
-      if (borrowed > 0) {
-        throw StateError('Selesaikan peminjaman aktif sebelum arsip.');
+      if (item == null || item['archived'] == true || item['hidden'] == true) {
+        throw StateError('Barang tidak ditemukan atau sudah disembunyikan.');
       }
       transaction.update(ref, {
-        'archived': true,
+        'hidden': true,
         'updatedAt': FieldValue.serverTimestamp(),
       });
       final before = _number(item['available']);
@@ -595,14 +604,69 @@ class CloudInventoryStore extends InventoryStore {
         movementRef,
         _movement(
           code: code.trim().toUpperCase(),
-          action: 'Arsip barang',
-          reason: 'Diarsipkan oleh Admin',
+          action: 'Hide barang',
+          reason: 'Disembunyikan oleh Admin',
           before: before,
           after: before,
         ),
       );
     });
   });
+
+  /// Menampilkan kembali barang yang sebelumnya di-hide.
+  @override
+  Future<void> showItem(String code) => _perform(() async {
+    final ref = _itemRef(code);
+    final movementRef = db.collection('inventoryMovements').doc();
+    await db.runTransaction((transaction) async {
+      final item = (await transaction.get(ref)).data();
+      if (item == null || item['archived'] == true || item['hidden'] != true) {
+        throw StateError('Barang tidak ditemukan atau sudah ditampilkan.');
+      }
+      transaction.update(ref, {
+        'hidden': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      final before = _number(item['available']);
+      transaction.set(
+        movementRef,
+        _movement(
+          code: code.trim().toUpperCase(),
+          action: 'Tampilkan barang',
+          reason: 'Ditampilkan oleh Admin',
+          before: before,
+          after: before,
+        ),
+      );
+    });
+  });
+
+  /// Menghapus barang dan foto secara permanen setelah memastikan tidak dipinjam.
+  @override
+  Future<void> deleteItem(String code) => _perform(() async {
+    final ref = _itemRef(code);
+    final photoRef = db.collection('inventoryPhotos').doc(ref.id);
+    await db.runTransaction((transaction) async {
+      final item = (await transaction.get(ref)).data();
+      final photo = await transaction.get(photoRef);
+      if (item == null) throw StateError('Barang tidak ditemukan.');
+      final borrowed =
+          _number(item['total']) -
+          _number(item['available']) -
+          _number(item['damaged']) -
+          _number(item['lost']);
+      if (borrowed > 0) {
+        throw StateError('Selesaikan peminjaman aktif sebelum menghapus barang.');
+      }
+      transaction.delete(ref);
+      if (photo.exists) transaction.delete(photoRef);
+    });
+  });
+
+  /// Kompatibilitas data lama: arsip lama diperlakukan sebagai hide.
+  @Deprecated('Gunakan hideItem.')
+  @override
+  Future<void> archiveItem(String code) => hideItem(code);
 
   /// Mencatat peminjaman dan mengurangi stok tersedia.
   @override
@@ -624,7 +688,7 @@ class CloudInventoryStore extends InventoryStore {
     await db.runTransaction((transaction) async {
       final item = (await transaction.get(ref)).data();
       if (item == null || item['archived'] == true) {
-        throw StateError('Barang tidak ditemukan atau sudah diarsipkan.');
+        throw StateError('Barang tidak ditemukan atau sudah dihapus.');
       }
       final before = _number(item['available']);
       if (before < quantity) throw StateError('Stok tersedia tidak mencukupi.');
@@ -685,7 +749,7 @@ class CloudInventoryStore extends InventoryStore {
       final itemRef = _itemRef(code);
       final item = (await transaction.get(itemRef)).data();
       if (item == null || item['archived'] == true) {
-        throw StateError('Barang tidak ditemukan atau sudah diarsipkan.');
+        throw StateError('Barang tidak ditemukan atau sudah dihapus.');
       }
       final remaining =
           _number(borrowing['quantity']) - _number(borrowing['returned']);

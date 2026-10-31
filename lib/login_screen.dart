@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'demo_data.dart';
 import 'email_policy.dart';
@@ -336,6 +337,17 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                           ),
+                          Center(
+                            child: TextButton.icon(
+                              onPressed: widget.busy
+                                  ? null
+                                  : () => _openAccessRequest(context),
+                              icon: const Icon(Icons.chat_outlined, size: 16),
+                              label: const Text(
+                                'Belum punya akun? Hubungi Super Admin',
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -348,6 +360,137 @@ class _LoginScreenState extends State<LoginScreen> {
         },
       ),
     ),
+  );
+
+  /// Mengumpulkan kebutuhan calon pengguna lalu membuka WhatsApp dengan pesan siap kirim.
+  Future<void> _openAccessRequest(BuildContext context) async {
+    final request = await showDialog<_AccessRequest>(
+      context: context,
+      builder: (_) => const _AccessRequestDialog(),
+    );
+    if (request == null || !context.mounted) return;
+    final message = Uri.encodeComponent(
+      'Halo Super Admin Karang Taruna Apps,\n\n'
+      'Saya ingin mengajukan permintaan akun dengan data berikut:\n'
+      'Nama: ${request.name}\n'
+      'Email: ${request.email}\n'
+      'Username yang diminta: ${request.username}\n'
+      'Organisasi: ${request.organization}\n'
+      'Kebutuhan/role: ${request.need}\n\n'
+      'Mohon dibantu proses pembuatan akun dan organisasi. Terima kasih.',
+    );
+    final uri = Uri.parse(
+      'https://wa.me/$superAdminWhatsAppNumber?text=$message',
+    );
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
+        context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('WhatsApp belum dapat dibuka di perangkat ini.'),
+        ),
+      );
+    }
+  }
+}
+
+class _AccessRequest {
+  const _AccessRequest(
+    this.name,
+    this.email,
+    this.username,
+    this.organization,
+    this.need,
+  );
+
+  final String name;
+  final String email;
+  final String username;
+  final String organization;
+  final String need;
+}
+
+class _AccessRequestDialog extends StatefulWidget {
+  const _AccessRequestDialog();
+
+  @override
+  State<_AccessRequestDialog> createState() => _AccessRequestDialogState();
+}
+
+class _AccessRequestDialogState extends State<_AccessRequestDialog> {
+  final name = TextEditingController();
+  final email = TextEditingController();
+  final username = TextEditingController();
+  final organization = TextEditingController();
+  final need = TextEditingController();
+
+  @override
+  void dispose() {
+    name.dispose();
+    email.dispose();
+    username.dispose();
+    organization.dispose();
+    need.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Minta akses akun'),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: name,
+            decoration: const InputDecoration(labelText: 'Nama lengkap'),
+          ),
+          TextField(
+            controller: email,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(labelText: 'Email @gmail.com'),
+          ),
+          TextField(
+            controller: username,
+            decoration: const InputDecoration(labelText: 'Username yang diminta'),
+          ),
+          TextField(
+            controller: organization,
+            decoration: const InputDecoration(labelText: 'Nama organisasi'),
+          ),
+          TextField(
+            controller: need,
+            maxLines: 2,
+            decoration: const InputDecoration(labelText: 'Kebutuhan / role'),
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Batal'),
+      ),
+      FilledButton(
+        onPressed: () {
+          if ([name, email, username, organization, need].any(
+            (field) => field.text.trim().isEmpty,
+          )) {
+            return;
+          }
+          Navigator.pop(
+            context,
+            _AccessRequest(
+              name.text.trim(),
+              email.text.trim(),
+              username.text.trim(),
+              organization.text.trim(),
+              need.text.trim(),
+            ),
+          );
+        },
+        child: const Text('Buka WhatsApp'),
+      ),
+    ],
   );
 }
 

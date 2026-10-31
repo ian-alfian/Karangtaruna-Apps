@@ -14,6 +14,7 @@ class FirebaseUserProfile {
     required this.email,
     required this.organizationId,
     required this.role,
+    this.isSuperAdmin = false,
   });
 
   final String uid;
@@ -21,6 +22,7 @@ class FirebaseUserProfile {
   final String email;
   final String organizationId;
   final AppRole role;
+  final bool isSuperAdmin;
 
   /// Membaca dan memvalidasi profil pengguna dari data Firestore.
   factory FirebaseUserProfile.fromData({
@@ -68,6 +70,9 @@ class FirebaseUserProfile {
       email: email,
       organizationId: organizationId,
       role: role,
+      isSuperAdmin:
+          email.trim().toLowerCase() == superAdminEmail &&
+          role == AppRole.admin,
     );
   }
 }

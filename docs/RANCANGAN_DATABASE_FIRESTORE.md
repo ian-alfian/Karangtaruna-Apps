@@ -1,6 +1,6 @@
 # Rancangan database Firestore — Karangtaruna Apps
 
-**Status:** rancangan untuk dipelajari dan dibuat oleh pemilik proyek. Dokumen ini tidak membuat koleksi, dokumen, atau akun di Firebase.
+**Status:** acuan struktur Firestore. Koleksi bisnis dibuat oleh alur aplikasi; koleksi `organizations` dibuat melalui Panel Super Admin. Dokumen ini tidak membuat field bisnis secara otomatis.
 
 **Acuan:** kode Flutter dan `firestore.rules` saat ini, dengan kebutuhan lanjutan dari `PRD_Karang_Taruna_Digital_v2_0.md`. Nama dan field pada bagian **Aktif dalam aplikasi** harus dipakai persis agar aplikasi dapat membaca datanya. Bagian **Rencana lanjutan** belum dihubungkan ke aplikasi.
 
@@ -30,7 +30,7 @@
 | Waktu `createdAt`, `updatedAt`, `at`, `borrowedAt`, `returnedAt` | Diisi otomatis dari waktu server saat aksi aplikasi berhasil. `transactionDate` dan `dueAt` berasal dari tanggal yang dipilih pada form. |
 | `imageBase64` | Hasil olahan foto JPEG oleh aplikasi, bukan kalimat yang diketik atau alamat file laptop. |
 
-## Peta 11 koleksi aktif, dikelompokkan per modul
+## Peta 12 koleksi aktif, dikelompokkan per modul
 
 Ketik nama pada kolom **Collection ID** persis seperti tabel berikut (huruf besar/kecil berpengaruh). Semua berada pada Parent path `/`.
 
@@ -41,12 +41,13 @@ Ketik nama pada kolom **Collection ID** persis seperti tabel berikut (huruf besa
 | Keuangan | `cashAccounts` | UID Bendahara | Transaksi pertama Bendahara, bersama `financialTransactions` |
 | Inventaris | `inventoryItems` | `{organizationId}__{KODE}` | Admin menambah barang |
 | Inventaris | `inventoryPhotos` | Sama dengan ID `inventoryItems` | Barang diberi foto |
-| Inventaris | `inventoryMovements` | ID otomatis | Tambah/edit/stok/arsip/pinjam/kembali barang |
+| Inventaris | `inventoryMovements` | ID otomatis | Tambah/edit/stok/hide/hapus/pinjam/kembali barang |
 | Peminjaman | `borrowings` | ID otomatis | Admin mencatat peminjaman |
 | Peminjaman | `borrowingReturns` | ID otomatis | Admin mencatat pengembalian |
 | Koneksi Bendahara | `treasurerConnectionRequests` | `{organizationId}__{uidA}__{uidB}` | Bendahara mengirim permintaan |
 | Koneksi Bendahara | `treasurerConnections` | Sama dengan ID permintaan | Permintaan koneksi diterima |
 | Koneksi Bendahara | `notifications` | ID otomatis | Aktivitas koneksi Bendahara |
+| Multi-organisasi | `organizations` | Kode organisasi, mis. `karangtaruna-banyumas` | Dibuat Super Admin bersama Admin pertama |
 
 **Urutan melihat hasil di Console:** buat akun melalui Admin → lihat `users`; catat pemasukan melalui Bendahara → lihat `financialTransactions` dan `cashAccounts`; tambah barang melalui Admin → lihat `inventoryItems` dan `inventoryMovements` (`inventoryPhotos` bila ada foto); catat peminjaman/pengembalian → lihat `borrowings` dan `borrowingReturns`; buat koneksi dua Bendahara → lihat tiga koleksi Koneksi Bendahara. Koleksi akan muncul setelah ada dokumen pertama yang valid.
 
@@ -126,12 +127,13 @@ Contoh ID: `karangtaruna-main__INV-004`. `KODE` dinormalisasi menjadi huruf besa
 | `available` | `number` (integer) | `2` | Unit siap dipinjam saat awal. |
 | `damaged` | `number` (integer) | `0` | Unit rusak saat awal. |
 | `lost` | `number` (integer) | `0` | Unit hilang saat awal. |
-| `archived` | `boolean` | `false` | `true` menyembunyikan barang dari daftar aktif. |
+| `archived` | `boolean` | `false` | Field legacy; data baru tetap `false` dan penghapusan dilakukan dengan operasi Hapus. |
+| `hidden` | `boolean` | `false` | `true` menyembunyikan barang dari daftar Bendahara dan Anggota, tetapi tetap terlihat oleh Admin. |
 | `createdBy` | `string` | `<UID_ADMIN>` | UID Admin pembuat barang. |
 | `createdAt` | `timestamp` | Waktu saat barang dibuat | Diisi server. |
 | `updatedAt` | `timestamp` | Sama dengan `createdAt` saat awal | Diisi server. |
 
-Saat dibuat: `total = available = stok awal`, `damaged = lost = 0`. Jumlah yang sedang dipinjam dihitung oleh aplikasi sebagai `total - available - damaged - lost`; tidak ada field `borrowed`. Sumber kode: `lib/cloud_stores.dart` (`CloudInventoryStore`).
+Saat dibuat: `total = available = stok awal`, `damaged = lost = 0`, `archived = false`, dan `hidden = false`. Jumlah yang sedang dipinjam dihitung oleh aplikasi sebagai `total - available - damaged - lost`; tidak ada field `borrowed`. `Hapus Barang` menghapus dokumen barang dan fotonya secara permanen, sedangkan `Hide Barang` hanya mengubah `hidden` menjadi `true`. Sumber kode: `lib/cloud_stores.dart` (`CloudInventoryStore`).
 
 ### 5. `inventoryPhotos/{organizationId}__{KODE}` — foto barang
 
@@ -156,7 +158,7 @@ Setiap perubahan barang menghasilkan satu catatan. Koleksi ini dipakai untuk men
 | --- | --- | --- | --- |
 | `organizationId` | `string` | `karangtaruna-main` | Nilai sama dengan barang. |
 | `itemCode` | `string` | `INV-004` | Kode barang yang berubah. |
-| `action` | `string` | `Tambah barang` | Nilai lain: `Edit barang`, `Update stok`, `Arsip barang`, `Peminjaman`, `Pengembalian`. |
+| `action` | `string` | `Tambah barang` | Nilai lain: `Edit barang`, `Update stok`, `Hide barang`, `Tampilkan barang`, `Hapus barang`, `Peminjaman`, `Pengembalian`. |
 | `reason` | `string` | `Stok awal` | Alasan atau ringkasan tindakan. |
 | `beforeAvailable` | `number` (integer) | `0` | Stok tersedia sebelum tindakan. |
 | `afterAvailable` | `number` (integer) | `2` | Stok tersedia sesudah tindakan. |
@@ -269,7 +271,7 @@ Jangan membuat koleksi berikut hanya untuk membuatnya terlihat di Console; kode 
 
 | Usulan | Field dan Type yang direncanakan | Contoh nilai ilustratif | Status/keputusan |
 | --- | --- | --- | --- |
-| `organizations/{organizationId}` | `name: string`, `isActive: boolean`, `createdAt: timestamp`, `updatedAt: timestamp` | ID dokumen `karangtaruna-main`; `name: Karang Taruna Utama`; `isActive: true`; waktu diisi server | Direktori organisasi bila kelak ada lebih dari satu organisasi; sekarang aplikasi hanya memakai `organizationId` pada setiap dokumen. Perlu kode dan rules baru. |
+| `organizations/{organizationId}` | `name: string`, `region: string`, `ownerUid: string`, `createdBy: string`, `isActive: boolean`, `createdAt: timestamp`, `updatedAt: timestamp` | ID dokumen `karangtaruna-banyumas`; `ownerUid` dan `createdBy` adalah UID Super Admin; `isActive: true`; waktu diisi server | **Sudah aktif.** Dibuat dari Panel Super Admin. `karangtaruna-main` yang sudah ada tetap menjadi organisasi data lama dan tidak perlu dipindah sebelum migrasi resmi. |
 | `cashGroups/{id otomatis}` | `organizationId: string`, `name: string`, `status: string`, `holderIds: array` berisi `string`, `createdAt: timestamp`, `updatedAt: timestamp` | `organizationId: karangtaruna-main`; `name: Kas Bendahara`; `status: active`; `holderIds: [<UID_A>, <UID_B>]` | Rekomendasi PRD untuk kelompok kas; aplikasi sekarang menghitung cakupan dari pasangan `treasurerConnections`. Jangan menambahkannya sebelum aturan migrasi cakupan kas diputuskan. |
 | `auditLogs/{id otomatis}` | `organizationId: string`, `actorUid: string`, `action: string`, `targetId: string`, `details: map`, `at: timestamp` | `action: update-stock`; `actorUid: <UID_ADMIN>`; `targetId: karangtaruna-main__INV-004`; `details: {before: 2, after: 3}` | Dicadangkan pada rules dan kode Cloud Functions, tetapi penulisan audit server tersebut belum dipakai oleh alur aplikasi Spark. |
 | `userAudit/{id otomatis}` | `action: string`, `actorUid: string`, `targetUid: string`, `organizationId: string`, `role: string`, `createdAt: timestamp` | `action: create`; `actorUid: <UID_ADMIN>`; `targetUid: <UID_USER>`; `organizationId: karangtaruna-main`; `role: anggota` | Ada di rancangan Cloud Functions untuk pembuatan akun; belum dipakai oleh alur pembuatan akun Flutter sekarang. |

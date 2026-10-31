@@ -157,9 +157,12 @@ class InventoryStore extends ChangeNotifier {
   /// Mengambil daftar barang aktif.
   List<InventoryItem> get items =>
       List.unmodifiable(_items.where((item) => !item.archived));
-  /// Mengambil daftar barang yang diarsipkan.
+  /// Mengambil data legacy yang masih bertanda arsip.
   List<InventoryItem> get archivedItems =>
       List.unmodifiable(_items.where((item) => item.archived));
+  /// Mengambil daftar barang yang disembunyikan tetapi belum dihapus.
+  List<InventoryItem> get hiddenItems =>
+      List.unmodifiable(_items.where((item) => !item.archived && item.hidden));
   /// Mengambil daftar peminjaman.
   List<Borrowing> get borrowings => List.unmodifiable(_borrowings.reversed);
   /// Mengambil riwayat perubahan stok untuk satu barang.
@@ -313,7 +316,7 @@ class InventoryStore extends ChangeNotifier {
     }
     final original = itemFor(code);
     if (original.archived) {
-      throw StateError('Barang arsip tidak dapat diubah.');
+      throw StateError('Barang yang sudah dihapus tidak dapat diubah.');
     }
     final next = _items
         .map(
@@ -350,7 +353,9 @@ class InventoryStore extends ChangeNotifier {
       throw ArgumentError('Jumlah dan alasan perubahan wajib diisi.');
     }
     final original = itemFor(code);
-    if (original.archived) throw StateError('Barang arsip tidak dapat diubah.');
+    if (original.archived) {
+      throw StateError('Barang yang sudah dihapus tidak dapat diubah.');
+    }
     if (original.available + delta < 0) {
       throw StateError('Stok tersedia tidak mencukupi.');
     }
@@ -375,25 +380,57 @@ class InventoryStore extends ChangeNotifier {
     ]);
   }
 
-  /// Mengarsipkan barang setelah memastikan tidak ada peminjaman aktif.
-  Future<void> archiveItem(String code) async {
+  /// Menyembunyikan barang dari Bendahara dan Anggota tanpa menghapus data.
+  Future<void> hideItem(String code) async {
     final original = itemFor(code);
-    if (original.borrowed > 0) {
-      throw StateError('Selesaikan peminjaman aktif sebelum arsip.');
-    }
     final next = _items
-        .map((item) => item.code == code ? item.copyWith(archived: true) : item)
+        .map((item) => item.code == code ? item.copyWith(hidden: true) : item)
         .toList();
     await _commit(next, _borrowings, [
       ..._movements,
       _movement(
         original,
-        'Arsip barang',
-        'Diarsipkan oleh Admin demo',
+        'Hide barang',
+        'Disembunyikan oleh Admin demo',
         original.available,
       ),
     ]);
   }
+
+  /// Menampilkan kembali barang yang sebelumnya disembunyikan.
+  Future<void> showItem(String code) async {
+    final original = itemFor(code);
+    final next = _items
+        .map((item) => item.code == code ? item.copyWith(hidden: false) : item)
+        .toList();
+    await _commit(next, _borrowings, [
+      ..._movements,
+      _movement(original, 'Tampilkan barang', 'Ditampilkan oleh Admin demo', original.available),
+    ]);
+  }
+
+  /// Menghapus barang secara permanen setelah memastikan tidak sedang dipinjam.
+  Future<void> deleteItem(String code) async {
+    final original = itemFor(code);
+    if (original.borrowed > 0) {
+      throw StateError('Selesaikan peminjaman aktif sebelum menghapus barang.');
+    }
+    final next = _items.where((item) => item.code != code).toList();
+    final nextPhotos = Map<String, String>.from(_photos)..remove(code);
+    await _commit(
+      next,
+      _borrowings,
+      [
+        ..._movements,
+        _movement(original, 'Hapus barang', 'Dihapus oleh Admin demo', original.available),
+      ],
+      photos: nextPhotos,
+    );
+  }
+
+  /// Kompatibilitas data lama: arsip lama diperlakukan sebagai hide.
+  @Deprecated('Gunakan hideItem.')
+  Future<void> archiveItem(String code) => hideItem(code);
 
   /// Mencatat peminjaman dan mengurangi stok tersedia.
   Future<void> borrowItem({

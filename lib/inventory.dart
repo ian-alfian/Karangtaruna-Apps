@@ -37,18 +37,21 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
   /// Menyusun daftar dan ringkasan inventaris berdasarkan filter.
   Widget _buildContent(BuildContext context) {
-    final items = widget.store.items
+    final sourceItems = widget.store.items
+        .where((item) => widget.role == AppRole.admin || !item.hidden)
+        .toList();
+    final items = sourceItems
         .where(
           (item) =>
               (category == 'Semua' || item.category == category) &&
               item.name.toLowerCase().contains(query.toLowerCase()),
         )
         .toList();
-    final available = widget.store.items.fold<int>(
+    final available = sourceItems.fold<int>(
       0,
       (sum, item) => sum + item.available,
     );
-    final borrowed = widget.store.items.fold<int>(
+    final borrowed = sourceItems.fold<int>(
       0,
       (sum, item) => sum + item.borrowed,
     );
@@ -114,7 +117,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
           children: [
             StatTile(
               value:
-                  '${widget.store.items.fold<int>(0, (sum, item) => sum + item.total)}',
+                '${sourceItems.fold<int>(0, (sum, item) => sum + item.total)}',
               label: 'Total unit',
             ),
             const SizedBox(width: 8),
@@ -181,10 +184,10 @@ class _InventoryScreenState extends State<InventoryScreen> {
           OutlinedButton(
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => ArchivedItemsPage(store: widget.store),
+                builder: (_) => HiddenItemsPage(store: widget.store),
               ),
             ),
-            child: const Text('Barang Diarsipkan'),
+            child: const Text('Barang Disembunyikan'),
           ),
         ],
       ],
@@ -256,6 +259,26 @@ class _InventoryCard extends StatelessWidget {
                   ],
                 ),
               ),
+              if (item.hidden)
+                Container(
+                  margin: const EdgeInsets.only(right: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF1D6),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Text(
+                    'Hide',
+                    style: TextStyle(
+                      color: AppColors.amber,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
               const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
             ],
           ),
@@ -484,20 +507,29 @@ class _InventoryDetailPageState extends State<InventoryDetailPage> {
             FilledButton(
               style: FilledButton.styleFrom(backgroundColor: AppColors.navy),
               onPressed: () async {
+                final hiding = !item.hidden;
                 final confirmed = await confirmAction(
                   context,
-                  title: 'Arsip barang?',
-                  message: 'Barang yang diarsipkan tetap ada dalam riwayat dan tidak muncul di daftar aktif.',
-                  confirmLabel: 'Arsipkan',
+                  title: hiding ? 'Sembunyikan barang?' : 'Tampilkan barang?',
+                  message: hiding
+                      ? 'Barang tidak akan terlihat oleh Bendahara dan Anggota, tetapi tetap tersimpan untuk Admin.'
+                      : 'Barang akan muncul kembali di daftar inventaris Bendahara dan Anggota.',
+                  confirmLabel: hiding ? 'Sembunyikan' : 'Tampilkan',
                 );
                 if (!confirmed || !context.mounted) return;
                 try {
-                  await widget.store.archiveItem(item.code);
+                  if (hiding) {
+                    await widget.store.hideItem(item.code);
+                  } else {
+                    await widget.store.showItem(item.code);
+                  }
                   if (context.mounted) {
                     await showActionNotice(
                       context,
                       title: 'Berhasil',
-                      message: '${item.name} telah diarsipkan.',
+                      message: hiding
+                          ? '${item.name} telah disembunyikan.'
+                          : '${item.name} telah ditampilkan kembali.',
                       buttonLabel: 'Kembali ke Inventaris',
                     );
                     if (context.mounted) Navigator.pop(context);
@@ -506,16 +538,56 @@ class _InventoryDetailPageState extends State<InventoryDetailPage> {
                   if (context.mounted) {
                     await showActionNotice(
                       context,
-                      title: 'Arsip gagal',
+                      title: hiding ? 'Hide gagal' : 'Tampilkan gagal',
                       message: error.toString().replaceFirst('Bad state: ', ''),
                       error: true,
                     );
                   }
                 }
               },
-              child: const Text('Arsip Barang'),
+              child: Text(item.hidden ? 'Tampilkan Barang' : 'Hide Barang'),
             ),
           ],
+          const SizedBox(height: 8),
+          OutlinedButton(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFFC62828),
+              side: const BorderSide(color: Color(0xFFC62828)),
+            ),
+            onPressed: () async {
+              final confirmed = await confirmAction(
+                context,
+                title: 'Hapus barang secara permanen?',
+                message:
+                    'Data barang dan fotonya akan dihapus. Riwayat perubahan tetap disimpan.',
+                confirmLabel: 'Hapus Barang',
+                destructive: true,
+              );
+              if (!confirmed || !context.mounted) return;
+              try {
+                await widget.store.deleteItem(item.code);
+                if (context.mounted) {
+                  await showActionNotice(
+                    context,
+                    title: 'Barang dihapus',
+                    message: '${item.name} telah dihapus dari inventaris.',
+                    buttonLabel: 'Kembali ke Inventaris',
+                  );
+                  if (context.mounted) Navigator.pop(context);
+                }
+              } catch (error) {
+                if (context.mounted) {
+                  await showActionNotice(
+                    context,
+                    title: 'Hapus gagal',
+                    message: error.toString().replaceFirst('Bad state: ', ''),
+                    error: true,
+                  );
+                }
+              }
+            },
+            child: const Text('Hapus Barang'),
+          ),
         ],
       ],
     ),

@@ -9,6 +9,7 @@ import 'inventory_store.dart';
 import 'ui.dart';
 import 'user_management.dart';
 import 'account_pages.dart';
+import 'super_admin.dart';
 
 class ProfileScreen extends StatelessWidget {
   /// Membuat halaman profil dan menu akun.
@@ -20,7 +21,7 @@ class ProfileScreen extends StatelessWidget {
     required this.inventoryStore,
     required this.onLogout,
     required this.onNotifications,
-    this.onViewRoleChanged,
+    this.hasPendingConnectionRequest = false,
   });
   final AppRole role;
   final FirebaseUserProfile? authenticatedProfile;
@@ -28,7 +29,7 @@ class ProfileScreen extends StatelessWidget {
   final InventoryStore inventoryStore;
   final VoidCallback onLogout;
   final VoidCallback onNotifications;
-  final ValueChanged<AppRole>? onViewRoleChanged;
+  final bool hasPendingConnectionRequest;
 
   /// Menyusun tampilan halaman profil dan menu akun.
   @override
@@ -133,6 +134,7 @@ class ProfileScreen extends StatelessWidget {
                 _ProfileMenu(
                   icon: Icons.people_outline_rounded,
                   title: 'Koneksi Bendahara',
+                  showBadge: hasPendingConnectionRequest,
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => store.isRemote
@@ -143,80 +145,45 @@ class ProfileScreen extends StatelessWidget {
                 ),
               if (role == AppRole.admin ||
                   authenticatedProfile?.role == AppRole.admin) ...[
-                if (authenticatedProfile?.role == AppRole.admin &&
-                    onViewRoleChanged != null)
+                if (authenticatedProfile?.isSuperAdmin == true)
                   _ProfileMenu(
-                    icon: Icons.swap_horiz_rounded,
-                    title: 'Ganti Tampilan Peran',
-                    onTap: () async {
-                      final selected = await showModalBottomSheet<AppRole>(
-                        context: context,
-                        backgroundColor: Colors.white,
-                        shape: const RoundedRectangleBorder(
-                          borderRadius: BorderRadius.vertical(
-                            top: Radius.circular(28),
-                          ),
-                        ),
-                        builder: (sheetContext) => SafeArea(
-                          child: Padding(
-                            padding: const EdgeInsets.all(20),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Text(
-                                  'Pilih tampilan peran',
-                                  style: TextStyle(
-                                    color: AppColors.navy,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                for (final option in AppRole.values)
-                                  ListTile(
-                                    title: Text(option.label),
-                                    trailing: option == role
-                                        ? const Icon(
-                                            Icons.check_rounded,
-                                            color: AppColors.blue,
-                                          )
-                                        : null,
-                                    onTap: () =>
-                                        Navigator.pop(sheetContext, option),
-                                  ),
-                              ],
-                            ),
-                          ),
+                    icon: Icons.admin_panel_settings_outlined,
+                    title: 'Panel Super Admin',
+                    onTap: () {
+                      final profile = authenticatedProfile;
+                      if (profile == null) return;
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => SuperAdminPage(profile: profile),
                         ),
                       );
-                      if (selected != null && context.mounted) {
-                        onViewRoleChanged!(selected);
-                      }
                     },
                   ),
-                _ProfileMenu(
-                  icon: Icons.manage_accounts_outlined,
-                  title: 'Kelola Pengguna',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => UserManagementPage(
-                        adminProfile: authenticatedProfile,
+                if (authenticatedProfile?.isSuperAdmin != true)
+                  _ProfileMenu(
+                    icon: Icons.manage_accounts_outlined,
+                    title: 'Kelola Pengguna',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => UserManagementPage(
+                          adminProfile: authenticatedProfile,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                _ProfileMenu(
-                  icon: Icons.bar_chart_rounded,
-                  title: 'Laporan',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => ReportsPage(
-                        store: store,
-                        inventoryStore: inventoryStore,
+                if (authenticatedProfile?.isSuperAdmin != true)
+                  _ProfileMenu(
+                    icon: Icons.bar_chart_rounded,
+                    title: 'Laporan',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => ReportsPage(
+                          store: store,
+                          inventoryStore: inventoryStore,
+                        ),
                       ),
                     ),
                   ),
-                ),
               ],
               _ProfileMenu(
                 icon: Icons.lock_outline_rounded,
@@ -282,11 +249,13 @@ class _ProfileMenu extends StatelessWidget {
     required this.title,
     required this.onTap,
     this.isLast = false,
+    this.showBadge = false,
   });
   final IconData icon;
   final String title;
   final VoidCallback onTap;
   final bool isLast;
+  final bool showBadge;
 
   /// Menyusun tampilan satu menu profil.
   @override
@@ -299,9 +268,17 @@ class _ProfileMenu extends StatelessWidget {
           title,
           style: const TextStyle(color: AppColors.navy, fontSize: 13),
         ),
-        trailing: const Icon(
-          Icons.chevron_right_rounded,
-          color: AppColors.muted,
+        trailing: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
+            if (showBadge)
+              const Positioned(
+                top: -3,
+                right: -4,
+                child: BlueStatusDot(size: 8),
+              ),
+          ],
         ),
         onTap: onTap,
       ),

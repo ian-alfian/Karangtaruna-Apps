@@ -1,6 +1,9 @@
 /// Email Admin pertama yang tetap diizinkan meskipun bukan alamat Gmail.
 const superAdminEmail = 'ian.23eo10039@students.unugha.id';
 
+/// Nomor WhatsApp Super Admin dalam format internasional tanpa tanda +.
+const superAdminWhatsAppNumber = '6282225596712';
+
 /// Memeriksa domain Gmail secara tepat, tanpa menerima subdomain atau akhiran lain.
 bool isGmailEmail(String email) =>
     RegExp(r'^[^@\s]+@gmail\.com$').hasMatch(email.trim().toLowerCase());

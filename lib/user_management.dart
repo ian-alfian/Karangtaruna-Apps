@@ -9,8 +9,9 @@ import 'ui.dart';
 
 class UserManagementPage extends StatefulWidget {
   /// Membuat halaman kelola pengguna.
-  const UserManagementPage({super.key, this.adminProfile});
+  const UserManagementPage({super.key, this.adminProfile, this.organizationId});
   final FirebaseUserProfile? adminProfile;
+  final String? organizationId;
 
   /// Membuat state interaktif untuk halaman kelola pengguna.
   @override
@@ -34,7 +35,13 @@ class _UserManagementPageState extends State<UserManagementPage> {
   /// Membuka formulir pembuatan akun baru.
   Future<void> openCreateUser() async {
     final created = await Navigator.of(context).push<CreatedManagedUser>(
-      MaterialPageRoute(builder: (_) => CreateUserPage(service: service!)),
+      MaterialPageRoute(
+        builder: (_) => CreateUserPage(
+          service: service!,
+          organizationId:
+              widget.organizationId ?? widget.adminProfile?.organizationId,
+        ),
+      ),
     );
     if (!mounted || created == null) return;
     await showActionNotice(
@@ -147,8 +154,8 @@ class _UserManagementPageState extends State<UserManagementPage> {
           )
         : PageFrame(
             children: [
-              const Text(
-                'Akun dalam organisasi Anda',
+              Text(
+                'Akun dalam organisasi ${widget.organizationId ?? widget.adminProfile?.organizationId ?? '-'}',
                 style: TextStyle(
                   color: AppColors.navy,
                   fontWeight: FontWeight.w800,
@@ -160,6 +167,20 @@ class _UserManagementPageState extends State<UserManagementPage> {
                 'Password awal dibuat oleh Admin. Pengguna dapat mengubahnya sendiri setelah masuk.',
                 style: TextStyle(color: AppColors.muted, fontSize: 12),
               ),
+              if (widget.adminProfile != null) ...[
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Organisasi: ${widget.adminProfile!.organizationId}',
+                    style: const TextStyle(
+                      color: AppColors.blue,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 18),
               SizedBox(
                 width: double.infinity,
@@ -181,7 +202,9 @@ class _UserManagementPageState extends State<UserManagementPage> {
               const SizedBox(height: 22),
               const SectionHeading(title: 'Daftar Pengguna'),
               StreamBuilder<List<ManagedUser>>(
-                stream: service!.users(),
+                stream: service!.usersForOrganization(
+                  widget.organizationId ?? service!.profile.organizationId,
+                ),
                 builder: (context, snapshot) {
                   if (snapshot.hasError) {
                     return Padding(
@@ -337,8 +360,9 @@ class _UserCard extends StatelessWidget {
 
 class CreateUserPage extends StatefulWidget {
   /// Membuat formulir pembuatan akun.
-  const CreateUserPage({super.key, required this.service});
+  const CreateUserPage({super.key, required this.service, this.organizationId});
   final FirebaseAdminService service;
+  final String? organizationId;
 
   /// Membuat state interaktif untuk formulir pembuatan akun.
   @override
@@ -389,6 +413,8 @@ class _CreateUserPageState extends State<CreateUserPage> {
         email: emailController.text,
         role: role,
         password: passwordController.text,
+        organizationId:
+            widget.organizationId ?? widget.service.profile.organizationId,
       );
       if (mounted) Navigator.pop(context, created);
     } catch (exception) {
@@ -417,8 +443,8 @@ class _CreateUserPageState extends State<CreateUserPage> {
           ),
         ),
         const SizedBox(height: 8),
-        const Text(
-          'Tentukan peran dan password awal. Pengguna dapat mengganti password sendiri setelah masuk.',
+        Text(
+          'Organisasi: ${widget.organizationId ?? widget.service.profile.organizationId}. Tentukan peran dan password awal.',
           style: TextStyle(color: AppColors.muted, fontSize: 12),
         ),
         const SizedBox(height: 24),

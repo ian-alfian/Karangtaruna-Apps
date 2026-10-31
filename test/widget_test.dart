@@ -41,7 +41,9 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('Admin dapat membuka tampilan Bendahara', (tester) async {
+  testWidgets('profil Admin tidak menampilkan ganti tampilan peran', (
+    tester,
+  ) async {
     await tester.binding.setSurfaceSize(const Size(412, 915));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await pumpShell(
@@ -65,11 +67,7 @@ void main() {
     await tester.tap(find.text('Profil').last);
     await tester.pumpAndSettle();
     expect(find.text('Kelola Pengguna'), findsOneWidget);
-    await tester.tap(find.text('Ganti Tampilan Peran'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Bendahara').last);
-    await tester.pumpAndSettle();
-    expect(find.text('Halo, Sukardi'), findsOneWidget);
+    expect(find.text('Ganti Tampilan Peran'), findsNothing);
   });
 
   testWidgets('peran pilihan login menjadi tampilan awal Admin', (

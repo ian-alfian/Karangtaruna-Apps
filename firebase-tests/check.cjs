@@ -26,7 +26,8 @@ async function main() {
       const db = ctx.firestore();
       for (const [uid, role] of [
         ['admin', 'admin'], ['bend1', 'bendahara'],
-        ['bend2', 'bendahara'], ['member', 'anggota'],
+        ['bend2', 'bendahara'], ['ZUpper', 'bendahara'],
+        ['aLower', 'bendahara'], ['member', 'anggota'],
       ]) {
         await setDoc(doc(db, 'users', uid), {
           organizationId: 'org', name: uid,
@@ -51,6 +52,9 @@ async function main() {
     }).firestore();
     const bend2 = env.authenticatedContext('bend2', {
       email: 'bend2@gmail.com',
+    }).firestore();
+    const upperUidTreasurer = env.authenticatedContext('ZUpper', {
+      email: 'zupper@gmail.com',
     }).firestore();
     const member = env.authenticatedContext('member', {
       email: 'member@gmail.com',
@@ -115,7 +119,7 @@ async function main() {
       tx.set(item, {organizationId: 'org', code: 'KURSI',
         name: 'Kursi', category: 'Peralatan', location: 'Gudang',
         total: 10, available: 10, damaged: 0, lost: 0,
-        archived: false, createdBy: 'admin',
+        archived: false, hidden: false, createdBy: 'admin',
         createdAt: serverTimestamp(), updatedAt: serverTimestamp()});
       tx.set(movement, {organizationId: 'org', itemCode: 'KURSI',
         action: 'Tambah barang', reason: 'Stok awal',
@@ -135,7 +139,7 @@ async function main() {
     await assertFails(setDoc(doc(member, 'inventoryItems', 'org__ILEGAL'), {
       organizationId: 'org', code: 'ILEGAL', name: 'Ilegal',
       category: 'Lainnya', location: 'Gudang', total: 1, available: 1,
-      damaged: 0, lost: 0, archived: false, createdBy: 'member',
+      damaged: 0, lost: 0, archived: false, hidden: false, createdBy: 'member',
       createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     }));
     await assertSucceeds(runTransaction(admin, async (tx) => {
@@ -174,6 +178,19 @@ async function main() {
     }));
 
     const pairId = 'org__bend1__bend2';
+    // UID Firebase yang berisi huruf besar dan kecil harus memakai urutan
+    // pasangan yang sama seperti perhitungan String.sort() di aplikasi.
+    await assertSucceeds(runTransaction(upperUidTreasurer, async (tx) => {
+      const request = doc(upperUidTreasurer,
+        'treasurerConnectionRequests', 'org__ZUpper__aLower');
+      const connection = doc(upperUidTreasurer,
+        'treasurerConnections', 'org__ZUpper__aLower');
+      await tx.get(request);
+      await tx.get(connection);
+      tx.set(request, {organizationId: 'org', requesterId: 'ZUpper',
+        recipientId: 'aLower', status: 'pending',
+        createdAt: serverTimestamp(), respondedAt: null});
+    }));
     await assertSucceeds(runTransaction(bend1, async (tx) => {
       const request = doc(bend1, 'treasurerConnectionRequests', pairId);
       const connection = doc(bend1, 'treasurerConnections', pairId);

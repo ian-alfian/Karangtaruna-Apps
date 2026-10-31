@@ -94,6 +94,7 @@ class InventoryItem {
     this.damaged = 0,
     this.lost = 0,
     this.archived = false,
+    this.hidden = false,
   });
 
   final String code;
@@ -105,6 +106,8 @@ class InventoryItem {
   final int damaged;
   final int lost;
   final bool archived;
+  /// Menyembunyikan barang dari role Bendahara dan Anggota tanpa menghapusnya.
+  final bool hidden;
 
   /// Menghitung jumlah stok yang sedang dipinjam.
   int get borrowed => total - available - damaged - lost;
@@ -119,6 +122,7 @@ class InventoryItem {
     int? damaged,
     int? lost,
     bool? archived,
+    bool? hidden,
   }) => InventoryItem(
     code: code,
     name: name ?? this.name,
@@ -129,6 +133,7 @@ class InventoryItem {
     damaged: damaged ?? this.damaged,
     lost: lost ?? this.lost,
     archived: archived ?? this.archived,
+    hidden: hidden ?? this.hidden,
   );
 
   /// Mengubah model menjadi peta data untuk penyimpanan.
@@ -142,6 +147,7 @@ class InventoryItem {
     'damaged': damaged,
     'lost': lost,
     'archived': archived,
+    'hidden': hidden,
   };
 
   /// Membangun model dari peta data tersimpan.
@@ -155,6 +161,7 @@ class InventoryItem {
     damaged: json['damaged'] as int? ?? 0,
     lost: json['lost'] as int? ?? 0,
     archived: json['archived'] as bool? ?? false,
+    hidden: json['hidden'] as bool? ?? false,
   );
 }
 

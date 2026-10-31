@@ -1,11 +1,11 @@
 {
     "name": "Karang Taruna Digital",
-    "short_name": "Karang Taruna",
+    "short_name": "Karangtaruna Apps",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#F0F2FF",
+    "theme_color": "#2373F4",
+    "description": "Sistem digital inventaris dan keuangan Karang Taruna.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

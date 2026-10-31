@@ -762,15 +762,15 @@ class InventoryHistoryPage extends StatelessWidget {
   );
 }
 
-class ArchivedItemsPage extends StatelessWidget {
-  /// Membuat daftar barang arsip.
-  const ArchivedItemsPage({super.key, required this.store});
+class HiddenItemsPage extends StatelessWidget {
+  /// Membuat daftar barang yang disembunyikan.
+  const HiddenItemsPage({super.key, required this.store});
   final InventoryStore store;
-  /// Menyusun tampilan daftar barang arsip.
+  /// Menyusun tampilan daftar barang yang disembunyikan.
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('Barang Diarsipkan'),
+      title: const Text('Barang Disembunyikan'),
       backgroundColor: AppColors.background,
     ),
     body: AnimatedBuilder(
@@ -778,12 +778,12 @@ class ArchivedItemsPage extends StatelessWidget {
       builder: (context, _) => PageFrame(
         children: [
           if (!store.isRemote) const DemoBanner(),
-          if (store.archivedItems.isEmpty)
+          if (store.hiddenItems.isEmpty)
             const Text(
-              'Belum ada barang diarsipkan.',
+              'Belum ada barang yang disembunyikan.',
               style: TextStyle(color: AppColors.muted),
             ),
-          for (final item in store.archivedItems)
+          for (final item in store.hiddenItems)
             Container(
               margin: const EdgeInsets.only(bottom: 9),
               padding: const EdgeInsets.all(16),
@@ -791,22 +791,56 @@ class ArchivedItemsPage extends StatelessWidget {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(18),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Text(
-                    item.name,
-                    style: const TextStyle(
-                      color: AppColors.navy,
-                      fontWeight: FontWeight.w800,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.name,
+                          style: const TextStyle(
+                            color: AppColors.navy,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          '${item.code} · ${item.total} unit',
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  Text(
-                    '${item.code} · ${item.total} unit',
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 11,
-                    ),
+                  TextButton(
+                    onPressed: () async {
+                      try {
+                        await store.showItem(item.code);
+                        if (context.mounted) {
+                          await showActionNotice(
+                            context,
+                            title: 'Barang ditampilkan',
+                            message:
+                                '${item.name} kembali terlihat oleh Bendahara dan Anggota.',
+                          );
+                        }
+                      } catch (error) {
+                        if (context.mounted) {
+                          await showActionNotice(
+                            context,
+                            title: 'Tindakan gagal',
+                            message: error.toString().replaceFirst(
+                              'Bad state: ',
+                              '',
+                            ),
+                            error: true,
+                          );
+                        }
+                      }
+                    },
+                    child: const Text('Tampilkan'),
                   ),
                 ],
               ),

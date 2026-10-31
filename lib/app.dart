@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,6 +16,7 @@ import 'login_screen.dart';
 import 'login_bloc.dart';
 import 'onboarding_screen.dart';
 import 'profile.dart';
+import 'super_admin.dart';
 import 'ui.dart';
 import 'user_management.dart';
 
@@ -225,12 +227,45 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int selectedTab = 0;
   AppRole? selectedViewRole;
+  bool hasPendingConnectionRequest = false;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+      _connectionRequestSubscription;
 
   /// Menyiapkan state dan pendengar awal saat widget dibuat.
   @override
   void initState() {
     super.initState();
     selectedViewRole = widget.initialViewRole;
+    _watchConnectionRequests();
+  }
+
+  /// Memantau permintaan koneksi Bendahara yang masuk untuk badge navigasi.
+  void _watchConnectionRequests() {
+    final profile = widget.authenticatedProfile;
+    if (!widget.store.isRemote ||
+        profile?.role != AppRole.bendahara ||
+        profile?.organizationId.trim().isEmpty != false) {
+      return;
+    }
+    _connectionRequestSubscription = FirebaseFirestore.instance
+        .collection('treasurerConnectionRequests')
+        .where('organizationId', isEqualTo: profile!.organizationId)
+        .snapshots()
+        .listen(
+          (snapshot) {
+            final hasIncoming = snapshot.docs.any((doc) {
+              final data = doc.data();
+              return data['recipientId'] == profile.uid &&
+                  data['status'] == 'pending';
+            });
+            if (mounted && hasPendingConnectionRequest != hasIncoming) {
+              setState(() => hasPendingConnectionRequest = hasIncoming);
+            }
+          },
+          onError: (_) {
+            if (mounted) setState(() => hasPendingConnectionRequest = false);
+          },
+        );
   }
 
   /// Membuka halaman notifikasi.
@@ -243,11 +278,23 @@ class _AppShellState extends State<AppShell> {
     ),
   );
 
+  /// Menghentikan pemantauan permintaan saat navigasi utama ditutup.
+  @override
+  void dispose() {
+    _connectionRequestSubscription?.cancel();
+    super.dispose();
+  }
+
   /// Menyusun tampilan navigasi utama sesuai peran.
   @override
   Widget build(BuildContext context) {
     final isAdmin = widget.authenticatedProfile?.role == AppRole.admin;
-    final viewRole = isAdmin ? (selectedViewRole ?? widget.role) : widget.role;
+    final isSuperAdmin = widget.authenticatedProfile?.isSuperAdmin == true;
+    final viewRole = isSuperAdmin
+        ? AppRole.admin
+        : isAdmin
+        ? (selectedViewRole ?? widget.role)
+        : widget.role;
     return Scaffold(
       body: IndexedStack(
         index: selectedTab,
@@ -280,12 +327,8 @@ class _AppShellState extends State<AppShell> {
             inventoryStore: widget.inventoryStore,
             onLogout: widget.onLogout,
             onNotifications: openNotifications,
-            onViewRoleChanged: isAdmin
-                ? (role) => setState(() {
-                    selectedViewRole = role;
-                    selectedTab = 0;
-                  })
-                : null,
+            hasPendingConnectionRequest:
+                hasPendingConnectionRequest && viewRole == AppRole.bendahara,
           ),
         ],
       ),
@@ -308,25 +351,29 @@ class _AppShellState extends State<AppShell> {
                 active: selectedTab == 0,
                 onTap: () => setState(() => selectedTab = 0),
               ),
-              _NavItem(
-                icon: Icons.inventory_2_outlined,
-                activeIcon: Icons.inventory_2_rounded,
-                label: 'Inventaris',
-                active: selectedTab == 1,
-                onTap: () => setState(() => selectedTab = 1),
-              ),
-              _NavItem(
-                icon: Icons.account_balance_wallet_outlined,
-                activeIcon: Icons.account_balance_wallet_rounded,
-                label: 'Keuangan',
-                active: selectedTab == 2,
-                onTap: () => setState(() => selectedTab = 2),
-              ),
+              if (!isSuperAdmin) ...[
+                _NavItem(
+                  icon: Icons.inventory_2_outlined,
+                  activeIcon: Icons.inventory_2_rounded,
+                  label: 'Inventaris',
+                  active: selectedTab == 1,
+                  onTap: () => setState(() => selectedTab = 1),
+                ),
+                _NavItem(
+                  icon: Icons.account_balance_wallet_outlined,
+                  activeIcon: Icons.account_balance_wallet_rounded,
+                  label: 'Keuangan',
+                  active: selectedTab == 2,
+                  onTap: () => setState(() => selectedTab = 2),
+                ),
+              ],
               _NavItem(
                 icon: Icons.person_outline_rounded,
                 activeIcon: Icons.person_rounded,
                 label: 'Profil',
                 active: selectedTab == 3,
+                showBadge:
+                    hasPendingConnectionRequest && viewRole == AppRole.bendahara,
                 onTap: () => setState(() => selectedTab = 3),
               ),
             ],
@@ -337,7 +384,7 @@ class _AppShellState extends State<AppShell> {
   }
 }
 
-class _NavItem extends StatelessWidget {
+class _NavItem extends StatefulWidget {
   /// Membuat satu tombol navigasi bawah.
   const _NavItem({
     required this.icon,
@@ -345,39 +392,85 @@ class _NavItem extends StatelessWidget {
     required this.label,
     required this.active,
     required this.onTap,
+    this.showBadge = false,
   });
   final IconData icon;
   final IconData activeIcon;
   final String label;
   final bool active;
+  final bool showBadge;
   final VoidCallback onTap;
 
-  /// Menyusun tampilan satu tombol navigasi bawah.
+  /// Membuat state hover dan tekan tombol navigasi bawah.
+  @override
+  State<_NavItem> createState() => _NavItemState();
+}
+
+class _NavItemState extends State<_NavItem> {
+  bool hovering = false;
+  bool pressing = false;
+
+  /// Menyusun tombol navigasi dengan efek hover dan tekanan yang halus.
   @override
   Widget build(BuildContext context) => Expanded(
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              active ? activeIcon : icon,
-              color: active ? AppColors.blue : AppColors.muted,
-              size: 23,
+    child: MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => hovering = true),
+      onExit: (_) => setState(() {
+        hovering = false;
+        pressing = false;
+      }),
+      child: InkWell(
+        onTap: widget.onTap,
+        onHighlightChanged: (value) => setState(() => pressing = value),
+        borderRadius: BorderRadius.circular(18),
+        hoverColor: Colors.transparent,
+        splashColor: Colors.transparent,
+        highlightColor: Colors.transparent,
+        overlayColor: WidgetStateProperty.all(Colors.transparent),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: AnimatedScale(
+            scale: pressing ? .9 : hovering ? 1.08 : 1,
+            duration: const Duration(milliseconds: 140),
+            curve: Curves.easeOutBack,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Icon(
+                      widget.active ? widget.activeIcon : widget.icon,
+                      color: widget.active || hovering
+                          ? AppColors.blue
+                          : AppColors.muted,
+                      size: 23,
+                    ),
+                    if (widget.showBadge)
+                      const Positioned(
+                        top: -2,
+                        right: -5,
+                        child: BlueStatusDot(size: 8),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  widget.label,
+                  style: TextStyle(
+                    color: widget.active || hovering
+                        ? AppColors.blue
+                        : AppColors.muted,
+                    fontSize: 10,
+                    fontWeight: widget.active || hovering
+                        ? FontWeight.w800
+                        : FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                color: active ? AppColors.blue : AppColors.muted,
-                fontSize: 10,
-                fontWeight: active ? FontWeight.w800 : FontWeight.w500,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     ),
@@ -439,6 +532,28 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Menyusun tampilan beranda sesuai peran.
   @override
   Widget build(BuildContext context) {
+    final profile = widget.authenticatedProfile;
+    final superAdminProfile = profile;
+    if (superAdminProfile != null && superAdminProfile.isSuperAdmin) {
+      return PageFrame(
+        children: [
+          RoleHeader(
+            role: AppRole.admin,
+            title: 'Halo, ${superAdminProfile.name}',
+            avatarLabel: superAdminProfile.name,
+            onNotifications: widget.onNotifications,
+          ),
+          _SuperAdminOverview(
+            profile: superAdminProfile,
+            onOpenPanel: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => SuperAdminPage(profile: superAdminProfile),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
     final isTreasurer =
         widget.role == AppRole.bendahara &&
         (!widget.store.isRemote ||
@@ -453,7 +568,8 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           RoleHeader(
             role: widget.role,
-            title: 'Halo, ${widget.role.displayName}',
+            title: 'Halo, ${profile?.name ?? widget.role.displayName}',
+            avatarLabel: profile?.name,
             onNotifications: widget.onNotifications,
           ),
           if (!widget.store.isRemote) const DemoBanner(),
@@ -546,7 +662,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(width: 8),
                 StatTile(
                   value:
-                      '${widget.inventoryStore.items.fold<int>(0, (sum, item) => sum + item.borrowed)}',
+                      '${widget.inventoryStore.items.fold<int>(0, (total, item) => total + item.borrowed)}',
                   label: 'Dipinjam',
                   highlight: true,
                 ),
@@ -565,9 +681,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   label: 'Pengguna',
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      builder: (_) => UserManagementPage(
-                        adminProfile: widget.authenticatedProfile,
-                      ),
+                      builder: (_) => widget.authenticatedProfile?.isSuperAdmin == true
+                          ? SuperAdminPage(profile: widget.authenticatedProfile!)
+                          : UserManagementPage(
+                              adminProfile: widget.authenticatedProfile,
+                            ),
                     ),
                   ),
                 ),
@@ -619,20 +737,20 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 StatTile(
                   value:
-                      '${widget.inventoryStore.items.fold<int>(0, (sum, item) => sum + item.total)}',
+                      '${widget.inventoryStore.items.fold<int>(0, (total, item) => total + item.total)}',
                   label: 'Total unit',
                 ),
                 const SizedBox(width: 8),
                 StatTile(
                   value:
-                      '${widget.inventoryStore.items.fold<int>(0, (sum, item) => sum + item.available)}',
+                      '${widget.inventoryStore.items.fold<int>(0, (total, item) => total + item.available)}',
                   label: 'Tersedia',
                   highlight: true,
                 ),
                 const SizedBox(width: 8),
                 StatTile(
                   value:
-                      '${widget.inventoryStore.items.fold<int>(0, (sum, item) => sum + item.borrowed)}',
+                      '${widget.inventoryStore.items.fold<int>(0, (total, item) => total + item.borrowed)}',
                   label: 'Dipinjam',
                 ),
               ],
@@ -660,4 +778,208 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+}
+
+/// Ringkasan khusus Super Admin tanpa data operasional inventaris/keuangan.
+class _SuperAdminOverview extends StatelessWidget {
+  const _SuperAdminOverview({required this.profile, required this.onOpenPanel});
+
+  final FirebaseUserProfile profile;
+  final VoidCallback onOpenPanel;
+
+  @override
+  Widget build(BuildContext context) {
+    final service = FirebaseAdminService(profile: profile);
+    return StreamBuilder<List<ManagedOrganization>>(
+      stream: service.organizations(),
+      builder: (context, organizationSnapshot) =>
+          StreamBuilder<List<ManagedUser>>(
+            stream: service.allUsers(),
+            builder: (context, userSnapshot) {
+              final users = userSnapshot.data ?? const <ManagedUser>[];
+              final organizations =
+                  organizationSnapshot.data ?? const <ManagedOrganization>[];
+              int count(AppRole role) =>
+                  users.where((user) => user.role == role).length;
+              final chartData = <({String label, int value, Color color})>[
+                (
+                  label: 'Organisasi',
+                  value: organizations.length,
+                  color: AppColors.navy,
+                ),
+                (
+                  label: 'Admin',
+                  value: count(AppRole.admin),
+                  color: AppColors.blue,
+                ),
+                (
+                  label: 'Bendahara',
+                  value: count(AppRole.bendahara),
+                  color: const Color(0xFF4C9AFF),
+                ),
+                (
+                  label: 'Anggota',
+                  value: count(AppRole.anggota),
+                  color: const Color(0xFF8BB8FF),
+                ),
+              ];
+              final maximum = chartData.fold<int>(
+                0,
+                (max, item) => item.value > max ? item.value : max,
+              );
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [AppColors.navy, AppColors.blue],
+                      ),
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: const Text(
+                      'Monitoring organisasi dan akun terdaftar',
+                      style: TextStyle(color: Colors.white, fontSize: 14),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _SuperAdminBarChart(data: chartData, maximum: maximum),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      StatTile(
+                        value: '${organizations.length}',
+                        label: 'Organisasi',
+                      ),
+                      const SizedBox(width: 8),
+                      StatTile(
+                        value: '${count(AppRole.admin)}',
+                        label: 'Admin',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      StatTile(
+                        value: '${count(AppRole.bendahara)}',
+                        label: 'Bendahara',
+                      ),
+                      const SizedBox(width: 8),
+                      StatTile(
+                        value: '${count(AppRole.anggota)}',
+                        label: 'Anggota',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  FilledButton.icon(
+                    onPressed: onOpenPanel,
+                    icon: const Icon(Icons.admin_panel_settings_outlined),
+                    label: const Text('Kelola Organisasi & Admin'),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Super Admin tidak mengelola inventaris atau keuangan organisasi.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: AppColors.muted, fontSize: 12),
+                  ),
+                ],
+              );
+            },
+          ),
+    );
+  }
+}
+
+/// Grafik batang ringkas untuk membandingkan jumlah organisasi dan role.
+class _SuperAdminBarChart extends StatelessWidget {
+  const _SuperAdminBarChart({required this.data, required this.maximum});
+
+  final List<({String label, int value, Color color})> data;
+  final int maximum;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(22),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Distribusi organisasi dan akun',
+          style: TextStyle(
+            color: AppColors.navy,
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 14),
+        SizedBox(
+          height: 150,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              for (final item in data)
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 5),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Text(
+                          '${item.value}',
+                          style: const TextStyle(
+                            color: AppColors.navy,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: FractionallySizedBox(
+                              widthFactor: .58,
+                              heightFactor: maximum == 0
+                                  ? .025
+                                  : (item.value / maximum)
+                                        .clamp(.025, 1.0)
+                                        .toDouble(),
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: item.color,
+                                  borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(9),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          item.label,
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
 }

@@ -18,6 +18,14 @@ service cloud.firestore {
             'ian.23eo10039@students.unugha.id');
     }
 
+    function superAdmin() {
+      return allowedAccountEmail() && request.auth.token.email is string &&
+        request.auth.token.email.lower() ==
+          'ian.23eo10039@students.unugha.id' &&
+        currentProfile().role == 'admin' &&
+        currentProfile().isActive == true;
+    }
+
     function currentProfile() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
@@ -78,7 +86,8 @@ service cloud.firestore {
         data.total >= 0 && data.available >= 0 &&
         data.damaged >= 0 && data.lost >= 0 &&
         data.total >= data.available + data.damaged + data.lost &&
-        data.archived is bool;
+        data.archived is bool &&
+        (!('hidden' in data) || data.hidden is bool);
     }
 
     function activeMember() {
@@ -103,13 +112,50 @@ service cloud.firestore {
         resource.data.organizationId == currentProfile().organizationId;
     }
 
+    match /organizations/{organizationId} {
+      allow get, list: if superAdmin() ||
+        (activeMember() && organizationId == currentProfile().organizationId &&
+          resource.data.isActive == true);
+      allow create: if superAdmin() &&
+        request.resource.data.keys().hasOnly([
+          'name', 'region', 'ownerUid', 'createdBy', 'isActive',
+          'createdAt', 'updatedAt']) &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() >= 2 &&
+        request.resource.data.name.size() <= 160 &&
+        request.resource.data.region is string &&
+        request.resource.data.region.size() > 0 &&
+        request.resource.data.region.size() <= 160 &&
+        request.resource.data.ownerUid == request.auth.uid &&
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.isActive == true &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.updatedAt == request.time;
+      allow update: if superAdmin() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'region', 'ownerUid', 'isActive', 'updatedAt']) &&
+        request.resource.data.name is string &&
+        request.resource.data.region is string &&
+        request.resource.data.ownerUid is string &&
+        request.resource.data.isActive is bool &&
+        request.resource.data.updatedAt == request.time;
+      allow delete: if superAdmin() &&
+        resource.data.createdBy == request.auth.uid;
+    }
+
     match /users/{uid} {
       allow get: if allowedAccountEmail() && request.auth.uid == uid ||
         (activeAdmin() &&
           resource.data.organizationId == currentProfile().organizationId);
-      allow list: if (activeAdmin() || activeTreasurer()) &&
-        resource.data.organizationId == currentProfile().organizationId;
-      allow create: if activeAdmin() &&
+      allow list: if superAdmin() ||
+        ((activeAdmin() || activeTreasurer()) &&
+          resource.data.organizationId == currentProfile().organizationId);
+      allow create: if
+        ((activeAdmin() &&
+          request.resource.data.organizationId == currentProfile().organizationId) ||
+          (superAdmin() &&
+            request.resource.data.role == 'admin' &&
+            exists(/databases/$(database)/documents/organizations/$(request.resource.data.organizationId)))) &&
         request.resource.data.keys().hasOnly([
           'name', 'email', 'role', 'organizationId', 'isActive',
           'createdBy', 'createdAt', 'updatedAt']) &&
@@ -123,12 +169,13 @@ service cloud.firestore {
         request.resource.data.email.size() <= 254 &&
         gmailAddress(request.resource.data.email) &&
         validRole(request.resource.data.role) &&
-        request.resource.data.organizationId == currentProfile().organizationId &&
         request.resource.data.isActive == true &&
         request.resource.data.createdBy == request.auth.uid &&
         request.resource.data.createdAt == request.time &&
         request.resource.data.updatedAt == request.time;
-      allow update: if activeAdmin() && sameOrganization() &&
+      allow update: if ((superAdmin() &&
+          request.resource.data.organizationId == resource.data.organizationId) ||
+        (activeAdmin() && sameOrganization())) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'role', 'isActive', 'updatedBy', 'updatedAt']) &&
         validRole(request.resource.data.role) &&
@@ -138,7 +185,7 @@ service cloud.firestore {
         (uid != request.auth.uid ||
           (request.resource.data.role == 'admin' &&
             request.resource.data.isActive == true));
-      allow delete: if activeAdmin() && sameOrganization() &&
+      allow delete: if (superAdmin() || (activeAdmin() && sameOrganization())) &&
         uid != request.auth.uid;
     }
 
@@ -177,14 +224,17 @@ service cloud.firestore {
     match /inventoryItems/{id} {
       allow get: if (activeAdmin() &&
           !exists(/databases/$(database)/documents/inventoryItems/$(id))) ||
-        sameOrganization();
-      allow list: if sameOrganization();
+        (sameOrganization() &&
+          (activeAdmin() || resource.data.hidden == false));
+      allow list: if sameOrganization() &&
+        (activeAdmin() || resource.data.hidden == false);
       allow create: if activeAdmin() && validItem(request.resource.data) &&
         id == currentProfile().organizationId + '__' + request.resource.data.code &&
         request.resource.data.createdBy == request.auth.uid &&
         request.resource.data.createdAt == request.time &&
         request.resource.data.updatedAt == request.time &&
-        request.resource.data.archived == false;
+        request.resource.data.archived == false &&
+        request.resource.data.hidden == false;
       allow update: if activeAdmin() && sameOrganization() &&
         validItem(request.resource.data) &&
         request.resource.data.code == resource.data.code &&
@@ -195,8 +245,8 @@ service cloud.firestore {
         request.resource.data.updatedAt == request.time &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'name', 'category', 'location', 'total', 'available',
-          'damaged', 'lost', 'archived', 'updatedAt']);
-      allow delete: if false;
+          'damaged', 'lost', 'archived', 'hidden', 'updatedAt']);
+      allow delete: if activeAdmin() && sameOrganization();
     }
 
     match /inventoryPhotos/{id} {
@@ -226,7 +276,7 @@ service cloud.firestore {
         (resource == null ||
           (resource.data.organizationId == request.resource.data.organizationId &&
             resource.data.itemCode == request.resource.data.itemCode));
-      allow delete: if false;
+      allow delete: if activeAdmin() && sameOrganization();
     }
 
     match /inventoryMovements/{id} {

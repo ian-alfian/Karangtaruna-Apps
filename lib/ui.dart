@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 
 import 'demo_data.dart';
@@ -14,6 +15,70 @@ abstract final class AppColors {
   static const amber = Color(0xFFB86A14);
 }
 
+/// Menampilkan titik biru sebagai penanda item yang memiliki aktivitas baru.
+/// Jika [pulse] aktif, titik akan berkedip perlahan agar mudah terlihat.
+class BlueStatusDot extends StatefulWidget {
+  const BlueStatusDot({super.key, this.pulse = false, this.size = 8});
+
+  final bool pulse;
+  final double size;
+
+  @override
+  State<BlueStatusDot> createState() => _BlueStatusDotState();
+}
+
+class _BlueStatusDotState extends State<BlueStatusDot>
+    with SingleTickerProviderStateMixin {
+  AnimationController? _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncAnimation();
+  }
+
+  @override
+  void didUpdateWidget(covariant BlueStatusDot oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.pulse != widget.pulse) _syncAnimation();
+  }
+
+  void _syncAnimation() {
+    if (widget.pulse) {
+      _controller ??= AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 850),
+      )..repeat(reverse: true);
+    } else {
+      _controller?.stop();
+      _controller?.reset();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dot = Container(
+      width: widget.size,
+      height: widget.size,
+      decoration: const BoxDecoration(
+        color: AppColors.blue,
+        shape: BoxShape.circle,
+      ),
+    );
+    if (!widget.pulse || _controller == null) return dot;
+    return FadeTransition(
+      opacity: Tween<double>(begin: .35, end: 1).animate(_controller!),
+      child: dot,
+    );
+  }
+}
+
 /// Menyusun warna, tipografi, dan tema Material aplikasi.
 ThemeData appTheme() {
   final colors = ColorScheme.fromSeed(
@@ -25,6 +90,17 @@ ThemeData appTheme() {
     useMaterial3: true,
     colorScheme: colors,
     scaffoldBackgroundColor: AppColors.background,
+    // Hindari animasi predictive back yang menampakkan snapshot halaman lain
+    // ketika pengguna memakai gestur kembali bawaan Android.
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {
+        TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+        TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.windows: ZoomPageTransitionsBuilder(),
+        TargetPlatform.linux: ZoomPageTransitionsBuilder(),
+      },
+    ),
     textTheme: const TextTheme(
       headlineLarge: TextStyle(
         fontSize: 28,
@@ -103,11 +179,13 @@ class RoleHeader extends StatelessWidget {
     required this.role,
     required this.title,
     this.onNotifications,
+    this.avatarLabel,
   });
 
   final AppRole role;
   final String title;
   final VoidCallback? onNotifications;
+  final String? avatarLabel;
 
   /// Menyusun tampilan header peran dan akun.
   @override
@@ -120,7 +198,10 @@ class RoleHeader extends StatelessWidget {
             radius: 23,
             backgroundColor: AppColors.navy,
             child: Text(
-              role.displayName.substring(0, 2).toUpperCase(),
+              (avatarLabel ?? role.displayName)
+                  .trim()
+                  .substring(0, (avatarLabel ?? role.displayName).trim().length >= 2 ? 2 : 1)
+                  .toUpperCase(),
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
@@ -383,7 +464,7 @@ class StatTile extends StatelessWidget {
   );
 }
 
-class QuickAction extends StatelessWidget {
+class QuickAction extends StatefulWidget {
   /// Membuat tombol pintas fitur.
   const QuickAction({
     super.key,
@@ -395,34 +476,76 @@ class QuickAction extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
 
-  /// Menyusun tampilan tombol pintas fitur.
+  /// Membuat state hover dan tekan tombol pintas fitur.
+  @override
+  State<QuickAction> createState() => _QuickActionState();
+}
+
+class _QuickActionState extends State<QuickAction> {
+  bool hovering = false;
+  bool pressing = false;
+
+  /// Menyusun tombol pintas dengan efek hover, tekan, dan kursor klik.
   @override
   Widget build(BuildContext context) => Expanded(
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
-      child: Column(
-        children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(17),
+    child: MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => hovering = true),
+      onExit: (_) => setState(() {
+        hovering = false;
+        pressing = false;
+      }),
+      child: InkWell(
+        onTap: widget.onTap,
+        onHighlightChanged: (value) => setState(() => pressing = value),
+        borderRadius: BorderRadius.circular(20),
+        hoverColor: Colors.transparent,
+        splashColor: Colors.transparent,
+        highlightColor: Colors.transparent,
+        overlayColor: WidgetStateProperty.all(Colors.transparent),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: AnimatedScale(
+            scale: pressing ? .92 : hovering ? 1.06 : 1,
+            duration: const Duration(milliseconds: 150),
+            curve: Curves.easeOutBack,
+            child: Column(
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: hovering || pressing
+                        ? AppColors.paleBlue
+                        : Colors.white,
+                    borderRadius: BorderRadius.circular(17),
+                    boxShadow: hovering || pressing
+                        ? [
+                            BoxShadow(
+                              color: AppColors.blue.withValues(alpha: .18),
+                              blurRadius: 12,
+                              offset: const Offset(0, 5),
+                            ),
+                          ]
+                        : const [],
+                  ),
+                  child: Icon(widget.icon, color: AppColors.blue),
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  widget.label,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: hovering ? AppColors.blue : AppColors.navy,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
             ),
-            child: Icon(icon, color: AppColors.blue),
           ),
-          const SizedBox(height: 7),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: AppColors.navy,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
+        ),
       ),
     ),
   );

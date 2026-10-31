@@ -126,17 +126,14 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
       }
       final actorDoc = await db.collection('users').doc(uid).get();
       final actor = actorDoc.data();
-      final targetDoc = await db.collection('users').doc(targetUid).get();
-      final target = targetDoc.data();
       if (actor == null ||
           actor['role'] != 'bendahara' ||
           actor['isActive'] != true ||
-          target == null ||
-          target['role'] != 'bendahara' ||
-          target['isActive'] != true ||
-          actor['organizationId'] != target['organizationId']) {
+          targetUid.trim().isEmpty) {
         throw StateError('Bendahara tujuan tidak ditemukan.');
       }
+      // Firestore Rules memvalidasi UID tujuan, status aktif, peran, dan
+      // organisasi. Tidak ada pembacaan langsung profil Bendahara lain.
       final organizationId = actor['organizationId'] as String;
       final pair = [uid, targetUid]..sort();
       final pairId = '${organizationId}__${pair[0]}__${pair[1]}';
@@ -206,26 +203,33 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
         } else {
           throw ArgumentError('Tindakan koneksi tidak valid.');
         }
-        final title = switch (action) {
-          'request' => 'Permintaan Koneksi Bendahara',
-          'accept' => 'Koneksi diterima',
-          'reject' => 'Koneksi ditolak',
-          'cancel' => 'Permintaan dibatalkan',
-          _ => 'Koneksi diputuskan',
-        };
-        transaction.set(notificationRef, {
+      });
+      // Notifikasi tidak boleh membatalkan perubahan koneksi yang sudah sah.
+      // Aturan notifikasi bisa berbeda dari aturan dokumen koneksi di server.
+      var notificationSent = true;
+      try {
+        await notificationRef.set({
           'organizationId': organizationId,
           'recipientId': targetUid,
           'sourceUid': uid,
           'category': 'connection',
-          'title': title,
+          'title': switch (action) {
+            'request' => 'Permintaan Koneksi Bendahara',
+            'accept' => 'Koneksi diterima',
+            'reject' => 'Koneksi ditolak',
+            'cancel' => 'Permintaan dibatalkan',
+            _ => 'Koneksi diputuskan',
+          },
           'body':
               '${actor['name'] ?? 'Bendahara'} memperbarui koneksi Bendahara.',
           'referenceId': pairId,
           'read': false,
           'createdAt': FieldValue.serverTimestamp(),
         });
-      });
+      } catch (notificationError) {
+        notificationSent = false;
+        debugPrint('Notifikasi koneksi gagal: $notificationError');
+      }
       if (mounted) {
         setState(() => busy = false);
         await refresh();
@@ -233,17 +237,20 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
           await showActionNotice(
             context,
             title: 'Berhasil',
-            message: switch (action) {
-              'request' => 'Permintaan koneksi telah dikirim.',
-              'accept' => 'Koneksi Bendahara diterima.',
-              'reject' => 'Permintaan koneksi ditolak.',
-              'cancel' => 'Permintaan koneksi dibatalkan.',
-              _ => 'Koneksi Bendahara diputuskan.',
-            },
+            message:
+                (switch (action) {
+                  'request' => 'Permintaan koneksi telah dikirim.',
+                  'accept' => 'Koneksi Bendahara diterima.',
+                  'reject' => 'Permintaan koneksi ditolak.',
+                  'cancel' => 'Permintaan koneksi dibatalkan.',
+                  _ => 'Koneksi Bendahara diputuskan.',
+                }) +
+                (notificationSent ? '' : ' Notifikasi belum terkirim.'),
           );
         }
       }
     } catch (exception) {
+      debugPrint('Aksi koneksi Bendahara "$action" gagal: $exception');
       if (mounted) {
         setState(() {
           error = _connectionError(exception);
@@ -275,11 +282,13 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
       (overview?['treasurers'] as List? ?? [])
           .map((item) => Map<String, dynamic>.from(item as Map))
           .toList();
+
   /// Mengambil daftar permintaan koneksi.
   List<Map<String, dynamic>> get requests =>
       (overview?['requests'] as List? ?? [])
           .map((item) => Map<String, dynamic>.from(item as Map))
           .toList();
+
   /// Menyusun tampilan kelola koneksi bendahara di Firebase.
   @override
   Widget build(BuildContext context) {
@@ -291,6 +300,9 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
     final pending = requests
         .where((item) => item['status'] == 'pending')
         .toList();
+    final hasIncomingRequest = pending.any(
+      (item) => item['recipientId'] == currentUid,
+    );
     return Scaffold(
       appBar: AppBar(
         title: const Text('Koneksi Bendahara'),
@@ -314,10 +326,22 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
             const Center(child: CircularProgressIndicator()),
           if (overview != null) ...[
             SegmentedButton<int>(
-              segments: const [
-                ButtonSegment(value: 0, label: Text('Koneksi')),
-                ButtonSegment(value: 1, label: Text('Cari')),
-                ButtonSegment(value: 2, label: Text('Permintaan')),
+              segments: [
+                const ButtonSegment(value: 0, label: Text('Koneksi')),
+                const ButtonSegment(value: 1, label: Text('Cari')),
+                ButtonSegment(
+                  value: 2,
+                  label: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Permintaan'),
+                      if (hasIncomingRequest) ...[
+                        const SizedBox(width: 6),
+                        const BlueStatusDot(pulse: true, size: 8),
+                      ],
+                    ],
+                  ),
+                ),
               ],
               selected: {tab},
               onSelectionChanged: (value) => setState(() => tab = value.first),
