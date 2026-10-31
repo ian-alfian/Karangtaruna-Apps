@@ -364,59 +364,22 @@ class _LoginScreenState extends State<LoginScreen> {
 
   /// Mengumpulkan kebutuhan calon pengguna lalu membuka WhatsApp dengan pesan siap kirim.
   Future<void> _openAccessRequest(BuildContext context) async {
-    final request = await showDialog<_AccessRequest>(
-      context: context,
-      builder: (_) => const _AccessRequestDialog(),
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => const AccessRequestPage(),
+      ),
     );
-    if (request == null || !context.mounted) return;
-    final message = Uri.encodeComponent(
-      'Halo Super Admin Karang Taruna Apps,\n\n'
-      'Saya ingin mengajukan permintaan akun dengan data berikut:\n'
-      'Nama: ${request.name}\n'
-      'Email: ${request.email}\n'
-      'Username yang diminta: ${request.username}\n'
-      'Organisasi: ${request.organization}\n'
-      'Kebutuhan/role: ${request.need}\n\n'
-      'Mohon dibantu proses pembuatan akun dan organisasi. Terima kasih.',
-    );
-    final uri = Uri.parse(
-      'https://wa.me/$superAdminWhatsAppNumber?text=$message',
-    );
-    if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
-        context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('WhatsApp belum dapat dibuka di perangkat ini.'),
-        ),
-      );
-    }
   }
 }
 
-class _AccessRequest {
-  const _AccessRequest(
-    this.name,
-    this.email,
-    this.username,
-    this.organization,
-    this.need,
-  );
-
-  final String name;
-  final String email;
-  final String username;
-  final String organization;
-  final String need;
-}
-
-class _AccessRequestDialog extends StatefulWidget {
-  const _AccessRequestDialog();
+class AccessRequestPage extends StatefulWidget {
+  const AccessRequestPage({super.key});
 
   @override
-  State<_AccessRequestDialog> createState() => _AccessRequestDialogState();
+  State<AccessRequestPage> createState() => _AccessRequestPageState();
 }
 
-class _AccessRequestDialogState extends State<_AccessRequestDialog> {
+class _AccessRequestPageState extends State<AccessRequestPage> {
   final name = TextEditingController();
   final email = TextEditingController();
   final username = TextEditingController();
@@ -433,64 +396,143 @@ class _AccessRequestDialogState extends State<_AccessRequestDialog> {
     super.dispose();
   }
 
+  /// Membuka WhatsApp dengan template permintaan akun yang sudah terisi.
+  Future<void> submitRequest() async {
+    if ([name, email, username, organization, need].any(
+      (field) => field.text.trim().isEmpty,
+    )) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Lengkapi semua field terlebih dahulu.')),
+      );
+      return;
+    }
+    final message = Uri.encodeComponent(
+      'Halo Super Admin Karang Taruna Apps,\n\n'
+      'Saya ingin mengajukan permintaan akun dengan data berikut:\n'
+      'Nama: ${name.text.trim()}\n'
+      'Email: ${email.text.trim()}\n'
+      'Username yang diminta: ${username.text.trim()}\n'
+      'Organisasi: ${organization.text.trim()}\n'
+      'Kebutuhan/role: ${need.text.trim()}\n\n'
+      'Mohon dibantu proses pembuatan akun dan organisasi. Terima kasih.',
+    );
+    final uri = Uri.parse(
+      'https://wa.me/$superAdminWhatsAppNumber?text=$message',
+    );
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
+        mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('WhatsApp belum dapat dibuka di perangkat ini.'),
+        ),
+      );
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Minta akses akun'),
-    content: SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: name,
-            decoration: const InputDecoration(labelText: 'Nama lengkap'),
-          ),
-          TextField(
-            controller: email,
-            keyboardType: TextInputType.emailAddress,
-            decoration: const InputDecoration(labelText: 'Email @gmail.com'),
-          ),
-          TextField(
-            controller: username,
-            decoration: const InputDecoration(labelText: 'Username yang diminta'),
-          ),
-          TextField(
-            controller: organization,
-            decoration: const InputDecoration(labelText: 'Nama organisasi'),
-          ),
-          TextField(
-            controller: need,
-            maxLines: 2,
-            decoration: const InputDecoration(labelText: 'Kebutuhan / role'),
-          ),
-        ],
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: AppColors.background,
+    appBar: AppBar(
+      title: const Text('Permintaan Akses'),
+      backgroundColor: AppColors.background,
+      leading: IconButton(
+        tooltip: 'Kembali',
+        icon: const Icon(Icons.arrow_back_rounded),
+        onPressed: () => Navigator.pop(context),
       ),
     ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Batal'),
-      ),
-      FilledButton(
-        onPressed: () {
-          if ([name, email, username, organization, need].any(
-            (field) => field.text.trim().isEmpty,
-          )) {
-            return;
-          }
-          Navigator.pop(
-            context,
-            _AccessRequest(
-              name.text.trim(),
-              email.text.trim(),
-              username.text.trim(),
-              organization.text.trim(),
-              need.text.trim(),
+    body: SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(30, 24, 30, 30),
+        child: Column(
+          children: [
+            const _DesignLogo(),
+            const SizedBox(height: 20),
+            const Text(
+              'Minta akses akun',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: Colors.black,
+              ),
             ),
-          );
-        },
-        child: const Text('Buka WhatsApp'),
+            const SizedBox(height: 8),
+            const Text(
+              'Isi data berikut. Setelah dikirim, WhatsApp akan terbuka dengan template pesan untuk Super Admin.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 12,
+                color: AppColors.muted,
+              ),
+            ),
+            const SizedBox(height: 28),
+            _requestField(name, 'Nama lengkap', 'Nama Anda'),
+            const SizedBox(height: 18),
+            _requestField(
+              email,
+              'Email',
+              'nama@gmail.com',
+              keyboardType: TextInputType.emailAddress,
+            ),
+            const SizedBox(height: 18),
+            _requestField(username, 'Username yang diminta', 'Contoh: dafa01'),
+            const SizedBox(height: 18),
+            _requestField(
+              organization,
+              'Nama organisasi',
+              'Contoh: Karang Taruna Desa ...',
+            ),
+            const SizedBox(height: 18),
+            _requestField(
+              need,
+              'Kebutuhan / role',
+              'Contoh: Admin organisasi',
+              maxLines: 3,
+            ),
+            const SizedBox(height: 28),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [AppColors.navy, AppColors.blue],
+                  ),
+                  borderRadius: BorderRadius.circular(100),
+                ),
+                child: TextButton.icon(
+                  onPressed: submitRequest,
+                  icon: const Icon(Icons.chat_outlined, color: Colors.white),
+                  label: const Text(
+                    'Kirim melalui WhatsApp',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
-    ],
+    ),
+  );
+
+  /// Membuat field permintaan dengan gaya outline yang sama seperti login.
+  Widget _requestField(
+    TextEditingController controller,
+    String label,
+    String hint, {
+    TextInputType? keyboardType,
+    int maxLines = 1,
+  }) => TextField(
+    controller: controller,
+    keyboardType: keyboardType,
+    maxLines: maxLines,
+    decoration: _fieldDecoration(label: label, hint: hint),
   );
 }
 
